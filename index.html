@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="description" content="Application personnelle de planification de voyages gratuite, locale et compatible GitHub Pages." />
+  <meta name="description" content="Application personnelle de planification de voyages avec connexion Google et sauvegarde Firebase." />
   <title>Travel Planner — Planificateur de voyages personnel</title>
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQdgybSkWD7O3wqM1eheErhse+8ZYYM=" crossorigin="" />
@@ -16,7 +16,7 @@
         <span class="brand__icon">✈</span>
         <span>
           <strong>Travel Planner</strong>
-          <small>local · cloud optionnel · gratuit</small>
+          <small>Google · Firebase · GitHub Pages</small>
         </span>
       </a>
 
@@ -34,7 +34,7 @@
 
       <div class="sidebar__footer">
         <button class="button button--primary full" id="newTripBtn">+ Nouveau voyage</button>
-        <small>Sauvegarde locale + cloud Firebase optionnel.</small>
+        <small>Sauvegarde automatique via compte Google.</small>
       </div>
     </aside>
 
@@ -46,7 +46,7 @@
         </div>
         <div class="topbar__actions">
           <select id="tripSelector" class="input" aria-label="Voyage sélectionné"></select>
-          <button class="button" id="cloudAuthBtn" title="Connexion Google / sauvegarde cloud">☁️ Cloud</button>
+          <button class="button" id="cloudAuthBtn" title="Connexion Google / sauvegarde Firebase">☁️ Cloud</button>
           <button class="button" id="themeToggle" title="Basculer le thème">🌙</button>
         </div>
       </header>
@@ -57,8 +57,8 @@
         <div class="hero-card">
           <div>
             <p class="eyebrow">Vue d’ensemble</p>
-            <h2>Prépare tes voyages avec carte, budget, feuille de route et sauvegarde locale.</h2>
-            <p>Le site fonctionne d’abord en local. Tu peux aussi activer une sauvegarde en ligne privée avec ton compte Google via Firebase, puis conserver l’export JSON comme sécurité.</p>
+            <h2>Prépare tes voyages avec carte, budget, feuille de route et sauvegarde Firebase automatique.</h2>
+            <p>Connecte-toi avec Google : tes voyages sont chargés depuis Firebase, puis chaque modification est synchronisée automatiquement dans ton espace privé.</p>
           </div>
           <div class="hero-card__actions">
             <button class="button button--primary" id="createFirstTripBtn">Créer un voyage</button>
@@ -71,7 +71,6 @@
             <p class="eyebrow">Mes voyages</p>
             <h2>Tableau de bord</h2>
           </div>
-          <button class="button" id="exportAllBtn">Exporter tout</button>
         </div>
         <div id="tripsGrid" class="trips-grid"></div>
       </section>
@@ -131,8 +130,8 @@
 
           <aside class="panel help-panel">
             <p class="eyebrow">À savoir</p>
-            <h3>Sauvegarde locale</h3>
-            <p>Chaque modification est enregistrée dans <strong>localStorage</strong>. Les données restent sur l’appareil utilisé. Pense à exporter tes voyages en JSON pour garder une copie.</p>
+            <h3>Sauvegarde Firebase</h3>
+            <p>Chaque modification est enregistrée automatiquement dans <strong>Cloud Firestore</strong> après connexion Google. Le navigateur ne sert plus de sauvegarde principale.</p>
             <hr />
             <h3>Coordonnées GPS</h3>
             <p>Pour une carte fiable sans API payante, renseigne les latitudes et longitudes des étapes. Un lien Google Maps peut aussi être stocké dans les notes/liens.</p>
@@ -263,18 +262,14 @@
             <label>Coût voiture estimé par km<input class="input" type="number" step="0.01" data-setting="costPerKm.car" min="0" /></label>
             <label>Coût bus estimé par km<input class="input" type="number" step="0.01" data-setting="costPerKm.bus" min="0" /></label>
             <label>Coût train estimé par km<input class="input" type="number" step="0.01" data-setting="costPerKm.train" min="0" /></label>
-            <label class="wide">Message sauvegarde locale<textarea class="input" readonly rows="4">Les voyages restent toujours stockés localement dans ce navigateur. L’hébergement GitHub Pages ne reçoit pas tes données. La synchronisation Firebase est optionnelle et utilise ton compte Google.</textarea></label>
+            <label class="wide">Synchronisation Firebase<textarea class="input" readonly rows="4">Les voyages sont associés à ton compte Google et stockés dans Cloud Firestore. Le site GitHub Pages reste statique : il affiche l’interface, tandis que Firebase gère l’authentification et la sauvegarde des données.</textarea></label>
           </div>
 
-          <aside class="panel">
-            <p class="eyebrow">Sauvegarde</p>
-            <h2>Importer / exporter</h2>
-            <div class="stack">
-              <button class="button" id="exportCurrentBtn">Exporter le voyage actif</button>
-              <button class="button" id="exportAllSettingsBtn">Exporter tous les voyages</button>
-              <label class="button file-button">Importer un JSON<input id="importFileInput" type="file" accept="application/json,.json" hidden /></label>
-              <button class="button button--danger" id="resetAllBtn">Réinitialiser toutes les données</button>
-            </div>
+          <aside class="panel cloud-summary-card">
+            <p class="eyebrow">Compte</p>
+            <h2>Synchronisation Google</h2>
+            <p>Toute l’application fonctionne maintenant avec Firebase : connexion Google obligatoire, chargement automatique, sauvegarde invisible après modification.</p>
+            <p id="cloudSyncMeta" class="sync-meta">Sauvegarde Firebase automatique après connexion.</p>
           </aside>
         </div>
 
@@ -282,12 +277,12 @@
           <div class="panel__header">
             <div>
               <p class="eyebrow">Compte Google</p>
-              <h2>Sauvegarde en ligne Firebase</h2>
+              <h2>Sauvegarde Firebase automatique</h2>
             </div>
             <button class="button button--primary" id="cloudSignInBtn">Se connecter avec Google</button>
           </div>
 
-          <div id="cloudStatus" class="cloud-status" role="status">Firebase n’est pas encore configuré.</div>
+          <div id="cloudStatus" class="cloud-status" role="status">Connexion Google requise.</div>
 
           <div class="cloud-profile" id="cloudProfile" hidden>
             <img id="cloudAvatar" alt="Photo du compte Google" />
@@ -298,21 +293,11 @@
           </div>
 
           <div class="cloud-actions">
-            <button class="button" id="cloudPushBtn">Envoyer mes voyages vers Google</button>
-            <button class="button" id="cloudPullBtn">Charger la sauvegarde Google</button>
             <button class="button" id="cloudSignOutBtn">Déconnexion</button>
-            <label class="cloud-toggle"><input type="checkbox" id="cloudAutoSyncToggle" /> Synchronisation automatique après modification</label>
+            <button class="button button--danger" id="deleteCloudDataBtn">Supprimer mes données Firebase</button>
           </div>
 
-          <details class="cloud-config">
-            <summary>Configurer Firebase</summary>
-            <p>Colle ici l’objet de configuration Firebase de ton application web, ou renseigne-le directement dans <code>js/firebase-config.js</code>.</p>
-            <textarea class="input code-input" id="firebaseConfigInput" rows="8" spellcheck="false" placeholder='{"apiKey":"...","authDomain":"...","projectId":"...","appId":"..."}'></textarea>
-            <div class="row-actions mt">
-              <button class="button" id="saveFirebaseConfigBtn">Enregistrer la configuration</button>
-              <button class="button" id="clearFirebaseConfigBtn">Effacer la configuration locale</button>
-            </div>
-          </details>
+          <p class="cloud-note">Aucun bouton d’export ou d’import n’est nécessaire : après connexion, Firebase charge tes voyages et sauvegarde automatiquement les changements.</p>
         </div>
       </section>
     </main>
