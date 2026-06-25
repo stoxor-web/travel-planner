@@ -1,6 +1,6 @@
 # Travel Planner — Lucas S. Edition
 
-Version V4.3 — réparation visuelle stable.
+Version V4.3.1 — icône navigateur et logo officiel.
 
 Cette version remet le site dans un état propre et complet après les derniers correctifs partiels. Elle contient tous les fichiers nécessaires au fonctionnement normal sur GitHub Pages avec Firebase.
 
@@ -9,7 +9,7 @@ Cette version remet le site dans un état propre et complet après les derniers 
 - Archive complète, pas un patch partiel.
 - Retour du fichier indispensable `js/utils.js`.
 - Carte OSM maison stable, sans Leaflet.
-- Favicon ajouté pour l’onglet du navigateur.
+- Icône demandée ajoutée pour l’onglet du navigateur : `assets/icons/ChatGPT Image 25 juin 2026, 15_26_24.png`.
 - Icône d’application ajoutée pour mobile.
 - Logo officiel ajouté dans les assets.
 - Correction du rectangle blanc sous la recherche.
@@ -28,12 +28,14 @@ js/map.js
 js/firebase-config.js
 js/firebase-sync.js
 firestore.rules
+assets/icons/ChatGPT Image 25 juin 2026, 15_26_24.png
 assets/icons/favicon.ico
 assets/icons/favicon-32.png
 assets/icons/apple-touch-icon.png
 assets/icons/icon-192.png
 assets/icons/icon-512.png
 assets/images/travel-planner-logo.png
+site.webmanifest
 ```
 
 ## Mise en ligne
