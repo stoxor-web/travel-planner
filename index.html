@@ -16,7 +16,7 @@
         <span class="brand__icon">✈</span>
         <span>
           <strong>Travel Planner</strong>
-          <small>local · gratuit · perso</small>
+          <small>local · cloud optionnel · gratuit</small>
         </span>
       </a>
 
@@ -34,7 +34,7 @@
 
       <div class="sidebar__footer">
         <button class="button button--primary full" id="newTripBtn">+ Nouveau voyage</button>
-        <small>Données stockées dans ce navigateur.</small>
+        <small>Sauvegarde locale + cloud Firebase optionnel.</small>
       </div>
     </aside>
 
@@ -46,6 +46,7 @@
         </div>
         <div class="topbar__actions">
           <select id="tripSelector" class="input" aria-label="Voyage sélectionné"></select>
+          <button class="button" id="cloudAuthBtn" title="Connexion Google / sauvegarde cloud">☁️ Cloud</button>
           <button class="button" id="themeToggle" title="Basculer le thème">🌙</button>
         </div>
       </header>
@@ -57,7 +58,7 @@
           <div>
             <p class="eyebrow">Vue d’ensemble</p>
             <h2>Prépare tes voyages avec carte, budget, feuille de route et sauvegarde locale.</h2>
-            <p>Le site fonctionne sans base de données, sans compte et sans abonnement obligatoire. Tu peux exporter un voyage en JSON pour le sauvegarder ailleurs.</p>
+            <p>Le site fonctionne d’abord en local. Tu peux aussi activer une sauvegarde en ligne privée avec ton compte Google via Firebase, puis conserver l’export JSON comme sécurité.</p>
           </div>
           <div class="hero-card__actions">
             <button class="button button--primary" id="createFirstTripBtn">Créer un voyage</button>
@@ -262,7 +263,7 @@
             <label>Coût voiture estimé par km<input class="input" type="number" step="0.01" data-setting="costPerKm.car" min="0" /></label>
             <label>Coût bus estimé par km<input class="input" type="number" step="0.01" data-setting="costPerKm.bus" min="0" /></label>
             <label>Coût train estimé par km<input class="input" type="number" step="0.01" data-setting="costPerKm.train" min="0" /></label>
-            <label class="wide">Message sauvegarde locale<textarea class="input" readonly rows="4">Les voyages sont stockés localement dans ce navigateur. L’hébergement GitHub Pages ne reçoit pas tes données. Utilise export/import JSON pour transférer ou sauvegarder.</textarea></label>
+            <label class="wide">Message sauvegarde locale<textarea class="input" readonly rows="4">Les voyages restent toujours stockés localement dans ce navigateur. L’hébergement GitHub Pages ne reçoit pas tes données. La synchronisation Firebase est optionnelle et utilise ton compte Google.</textarea></label>
           </div>
 
           <aside class="panel">
@@ -275,6 +276,43 @@
               <button class="button button--danger" id="resetAllBtn">Réinitialiser toutes les données</button>
             </div>
           </aside>
+        </div>
+
+        <div class="panel mt cloud-panel">
+          <div class="panel__header">
+            <div>
+              <p class="eyebrow">Compte Google</p>
+              <h2>Sauvegarde en ligne Firebase</h2>
+            </div>
+            <button class="button button--primary" id="cloudSignInBtn">Se connecter avec Google</button>
+          </div>
+
+          <div id="cloudStatus" class="cloud-status" role="status">Firebase n’est pas encore configuré.</div>
+
+          <div class="cloud-profile" id="cloudProfile" hidden>
+            <img id="cloudAvatar" alt="Photo du compte Google" />
+            <div>
+              <strong id="cloudUserName">Compte Google</strong>
+              <small id="cloudUserEmail"></small>
+            </div>
+          </div>
+
+          <div class="cloud-actions">
+            <button class="button" id="cloudPushBtn">Envoyer mes voyages vers Google</button>
+            <button class="button" id="cloudPullBtn">Charger la sauvegarde Google</button>
+            <button class="button" id="cloudSignOutBtn">Déconnexion</button>
+            <label class="cloud-toggle"><input type="checkbox" id="cloudAutoSyncToggle" /> Synchronisation automatique après modification</label>
+          </div>
+
+          <details class="cloud-config">
+            <summary>Configurer Firebase</summary>
+            <p>Colle ici l’objet de configuration Firebase de ton application web, ou renseigne-le directement dans <code>js/firebase-config.js</code>.</p>
+            <textarea class="input code-input" id="firebaseConfigInput" rows="8" spellcheck="false" placeholder='{"apiKey":"...","authDomain":"...","projectId":"...","appId":"..."}'></textarea>
+            <div class="row-actions mt">
+              <button class="button" id="saveFirebaseConfigBtn">Enregistrer la configuration</button>
+              <button class="button" id="clearFirebaseConfigBtn">Effacer la configuration locale</button>
+            </div>
+          </details>
         </div>
       </section>
     </main>
@@ -361,6 +399,8 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="js/utils.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/firebase-sync.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/itinerary.js"></script>
   <script src="js/budget.js"></script>
