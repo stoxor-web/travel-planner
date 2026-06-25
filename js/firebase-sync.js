@@ -2,8 +2,6 @@
   'use strict';
 
   const SDK_VERSION = '10.12.5';
-  const LOCAL_CONFIG_KEY = 'travelPlanner:firebaseConfig';
-  const AUTO_SYNC_KEY = 'travelPlanner:firebaseAutoSync';
   const COLLECTION = 'travelPlannerUsers';
 
   let firebaseApp = null;
@@ -13,6 +11,9 @@
   let currentUser = null;
   let currentStatus = 'Firebase non configuré.';
   let initializingPromise = null;
+  let authReadyPromise = null;
+  let authReadyResolve = null;
+  let authUnsubscribe = null;
   const authListeners = new Set();
 
   function cleanConfig(config = {}) {
@@ -26,54 +27,12 @@
     };
   }
 
-  function hasRequiredConfig(config = getConfig()) {
-    return Boolean(config.apiKey && config.authDomain && config.projectId && config.appId);
-  }
-
-  function getEmbeddedConfig() {
+  function getConfig() {
     return cleanConfig(window.TRAVEL_PLANNER_FIREBASE_CONFIG || {});
   }
 
-  function getStoredConfig() {
-    try {
-      const raw = localStorage.getItem(LOCAL_CONFIG_KEY);
-      return raw ? cleanConfig(JSON.parse(raw)) : cleanConfig({});
-    } catch (error) {
-      console.warn('Configuration Firebase locale invalide.', error);
-      return cleanConfig({});
-    }
-  }
-
-  function getConfig() {
-    const stored = getStoredConfig();
-    return hasConfigValues(stored) ? stored : getEmbeddedConfig();
-  }
-
-  function hasConfigValues(config) {
-    return Object.values(cleanConfig(config)).some(Boolean);
-  }
-
-  function saveConfig(config) {
-    const cleaned = cleanConfig(config);
-    localStorage.setItem(LOCAL_CONFIG_KEY, JSON.stringify(cleaned));
-    resetRuntime();
-    return cleaned;
-  }
-
-  function clearStoredConfig() {
-    localStorage.removeItem(LOCAL_CONFIG_KEY);
-    resetRuntime();
-  }
-
-  function resetRuntime() {
-    firebaseApp = null;
-    firebaseAuth = null;
-    firestoreDb = null;
-    modules = null;
-    currentUser = null;
-    initializingPromise = null;
-    currentStatus = hasRequiredConfig() ? 'Firebase configuré. Connexion Google disponible.' : 'Firebase non configuré.';
-    notifyAuthListeners();
+  function isConfigured(config = getConfig()) {
+    return Boolean(config.apiKey && config.authDomain && config.projectId && config.appId);
   }
 
   async function loadModules() {
@@ -93,25 +52,40 @@
 
     initializingPromise = (async () => {
       const config = getConfig();
-      if (!hasRequiredConfig(config)) {
-        currentStatus = 'Firebase n’est pas configuré. Renseigne apiKey, authDomain, projectId et appId.';
+      if (!isConfigured(config)) {
+        currentStatus = 'Firebase n’est pas configuré dans js/firebase-config.js.';
         notifyAuthListeners();
         throw new Error(currentStatus);
       }
+
       const { appModule, authModule, firestoreModule } = await loadModules();
       firebaseApp = appModule.getApps().length ? appModule.getApp() : appModule.initializeApp(config);
       firebaseAuth = authModule.getAuth(firebaseApp);
       firestoreDb = firestoreModule.getFirestore(firebaseApp);
+
       try {
         await authModule.setPersistence(firebaseAuth, authModule.browserLocalPersistence);
       } catch (error) {
         console.warn('Persistance Firebase Auth non modifiée.', error);
       }
-      authModule.onAuthStateChanged(firebaseAuth, user => {
-        currentUser = user;
-        currentStatus = user ? `Connecté à Firebase avec ${user.email || user.displayName || 'un compte Google'}.` : 'Firebase configuré. Aucun compte Google connecté.';
+
+      if (!authReadyPromise) {
+        authReadyPromise = new Promise(resolve => { authReadyResolve = resolve; });
+      }
+
+      if (authUnsubscribe) authUnsubscribe();
+      authUnsubscribe = authModule.onAuthStateChanged(firebaseAuth, user => {
+        currentUser = user || null;
+        currentStatus = currentUser
+          ? `Connecté avec ${currentUser.email || currentUser.displayName || 'Google'}.`
+          : 'Connexion Google requise pour accéder aux voyages.';
         notifyAuthListeners();
+        if (authReadyResolve) {
+          authReadyResolve(currentUser);
+          authReadyResolve = null;
+        }
       });
+
       currentStatus = 'Firebase initialisé.';
       notifyAuthListeners();
       return { auth: firebaseAuth, db: firestoreDb, user: currentUser };
@@ -125,6 +99,13 @@
     }
   }
 
+  async function waitForAuthState() {
+    await init();
+    if (currentUser !== null) return currentUser;
+    if (!authReadyPromise) authReadyPromise = new Promise(resolve => { authReadyResolve = resolve; });
+    return authReadyPromise;
+  }
+
   async function signIn() {
     const { auth } = await init();
     const { authModule } = await loadModules();
@@ -133,7 +114,7 @@
     try {
       const result = await authModule.signInWithPopup(auth, provider);
       currentUser = result.user;
-      currentStatus = `Connecté à Firebase avec ${currentUser.email || currentUser.displayName || 'Google'}.`;
+      currentStatus = `Connecté avec ${currentUser.email || currentUser.displayName || 'Google'}.`;
       notifyAuthListeners();
       return currentUser;
     } catch (error) {
@@ -150,12 +131,12 @@
     const { authModule } = await loadModules();
     await authModule.signOut(auth);
     currentUser = null;
-    currentStatus = 'Déconnecté de Firebase.';
+    currentStatus = 'Déconnecté de Google.';
     notifyAuthListeners();
   }
 
   function requireSignedIn() {
-    if (!currentUser) throw new Error('Connecte-toi d’abord avec ton compte Google.');
+    if (!currentUser) throw new Error('Connecte-toi avec Google pour accéder à tes voyages.');
     if (!firestoreDb) throw new Error('Firebase n’est pas initialisé.');
   }
 
@@ -186,8 +167,8 @@
       updatedAt: firestoreModule.serverTimestamp(),
       state: sanitizeStateForCloud(state)
     };
-    await firestoreModule.setDoc(cloudDocRef(), payload);
-    currentStatus = `Sauvegarde Google mise à jour pour ${currentUser.email || 'ce compte'}.`;
+    await firestoreModule.setDoc(cloudDocRef(), payload, { merge: false });
+    currentStatus = `Sauvegardé dans Firebase pour ${currentUser.email || 'ce compte Google'}.`;
     notifyAuthListeners();
     return payload;
   }
@@ -199,7 +180,7 @@
     const snapshot = await firestoreModule.getDoc(cloudDocRef());
     if (!snapshot.exists()) return null;
     const data = snapshot.data();
-    currentStatus = `Sauvegarde Google chargée pour ${currentUser.email || 'ce compte'}.`;
+    currentStatus = `Voyages chargés depuis Firebase pour ${currentUser.email || 'ce compte Google'}.`;
     notifyAuthListeners();
     return {
       state: data.state || null,
@@ -209,22 +190,23 @@
     };
   }
 
-  function isAutoSyncEnabled() {
-    return localStorage.getItem(AUTO_SYNC_KEY) === 'true';
-  }
-
-  function setAutoSyncEnabled(enabled) {
-    localStorage.setItem(AUTO_SYNC_KEY, enabled ? 'true' : 'false');
+  async function deleteState() {
+    await init();
+    requireSignedIn();
+    const { firestoreModule } = await loadModules();
+    await firestoreModule.deleteDoc(cloudDocRef());
+    currentStatus = 'Données Firebase supprimées pour ce compte Google.';
+    notifyAuthListeners();
   }
 
   function onAuthChange(listener) {
     authListeners.add(listener);
-    listener({ user: currentUser, status: currentStatus, configured: hasRequiredConfig(), autoSync: isAutoSyncEnabled() });
+    listener({ user: currentUser, status: currentStatus, configured: isConfigured() });
     return () => authListeners.delete(listener);
   }
 
   function notifyAuthListeners() {
-    const payload = { user: currentUser, status: currentStatus, configured: hasRequiredConfig(), autoSync: isAutoSyncEnabled() };
+    const payload = { user: currentUser, status: currentStatus, configured: isConfigured() };
     authListeners.forEach(listener => listener(payload));
   }
 
@@ -238,20 +220,16 @@
 
   window.TravelCloudSync = {
     getConfig,
-    getStoredConfig,
-    getEmbeddedConfig,
-    saveConfig,
-    clearStoredConfig,
-    isConfigured: hasRequiredConfig,
+    isConfigured,
     init,
+    waitForAuthState,
     signIn,
     signOut,
     saveState,
     loadState,
+    deleteState,
     getUser,
     getStatus,
-    onAuthChange,
-    isAutoSyncEnabled,
-    setAutoSyncEnabled
+    onAuthChange
   };
 })();

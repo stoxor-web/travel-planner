@@ -11,6 +11,10 @@
 
   let state = Storage.load();
   let cloudAutosaveTimer = null;
+  let cloudLastSavedAt = '';
+  let loadedCloudUid = null;
+  let appReady = false;
+  let cloudLoading = true;
   let currentView = 'dashboard';
 
   const titles = {
@@ -33,10 +37,9 @@
     bindNavigation();
     bindActions();
     applyTheme(state.settings.theme || 'light');
-    initCloudSync();
-    if (state.activeTripId && !Storage.getTrip(state)) state.activeTripId = state.trips[0]?.id || null;
     renderAll();
     switchView(location.hash?.replace('#', '') || 'dashboard');
+    initCloudSync();
   }
 
   function populateStaticSelects() {
@@ -57,38 +60,40 @@
   }
 
   function bindActions() {
-    $('#newTripBtn').addEventListener('click', createNewTrip);
-    $('#createFirstTripBtn').addEventListener('click', createNewTrip);
-    $('#loadDemoBtn').addEventListener('click', loadDemoTrip);
-    $('#tripSelector').addEventListener('change', event => {
+    const on = (id, event, handler) => {
+      const element = document.getElementById(id);
+      if (element) element.addEventListener(event, handler);
+    };
+
+    on('newTripBtn', 'click', createNewTrip);
+    on('createFirstTripBtn', 'click', createNewTrip);
+    on('loadDemoBtn', 'click', loadDemoTrip);
+    on('tripSelector', 'change', event => {
+      if (!requireCloudReady()) return;
       state.activeTripId = event.target.value || null;
       state = Storage.save(state);
       MapView.resetFilters();
       renderAll();
       scheduleCloudAutosave();
     });
-    $('#themeToggle').addEventListener('click', () => {
+    on('themeToggle', 'click', () => {
       state.settings.theme = document.body.classList.contains('dark') ? 'light' : 'dark';
       state = Storage.save(state);
       applyTheme(state.settings.theme);
       renderBudget();
       scheduleCloudAutosave();
     });
-    $('#tripForm').addEventListener('submit', saveTripForm);
-    $('#addStepBtn').addEventListener('click', () => openStepDialog());
-    $('#stepForm').addEventListener('submit', saveStepForm);
-    $('#addExpenseBtn').addEventListener('click', () => openExpenseDialog());
-    $('#expenseForm').addEventListener('submit', saveExpenseForm);
-    $('#fitMapBtn').addEventListener('click', MapView.fitBounds);
-    $('#refreshItineraryBtn').addEventListener('click', () => renderItinerary());
-    $('#optimizeBtn').addEventListener('click', optimizeActiveTrip);
-    $('#addChecklistItemBtn').addEventListener('click', addChecklistItem);
-    $('#saveSettingsBtn').addEventListener('click', saveSettings);
-    $('#exportCurrentBtn').addEventListener('click', exportCurrentTrip);
-    $('#exportAllBtn').addEventListener('click', exportAllTrips);
-    $('#exportAllSettingsBtn').addEventListener('click', exportAllTrips);
-    $('#importFileInput').addEventListener('change', importJsonFile);
-    $('#resetAllBtn').addEventListener('click', resetAll);
+    on('tripForm', 'submit', saveTripForm);
+    on('addStepBtn', 'click', () => openStepDialog());
+    on('stepForm', 'submit', saveStepForm);
+    on('addExpenseBtn', 'click', () => openExpenseDialog());
+    on('expenseForm', 'submit', saveExpenseForm);
+    on('fitMapBtn', 'click', MapView.fitBounds);
+    on('refreshItineraryBtn', 'click', () => renderItinerary());
+    on('optimizeBtn', 'click', optimizeActiveTrip);
+    on('addChecklistItemBtn', 'click', addChecklistItem);
+    on('saveSettingsBtn', 'click', saveSettings);
+    on('deleteCloudDataBtn', 'click', deleteCloudData);
     bindCloudActions();
     window.addEventListener('resize', () => MapView.invalidate());
     $$('[data-close-dialog]').forEach(button => button.addEventListener('click', () => {
@@ -99,6 +104,7 @@
 
   function switchView(view) {
     if (!titles[view]) view = 'dashboard';
+    if (!appReady && !['dashboard', 'settings'].includes(view)) view = 'dashboard';
     currentView = view;
     location.hash = view;
     $$('.view').forEach(section => section.classList.toggle('is-visible', section.id === `view-${view}`));
@@ -128,9 +134,20 @@
     renderMap();
   }
 
-  function activeTrip() { return Storage.getTrip(state); }
+  function activeTrip() {
+    if (!appReady) return null;
+    return Storage.getTrip(state);
+  }
+
+  function requireCloudReady() {
+    if (appReady && CloudSync?.getUser()) return true;
+    switchView('dashboard');
+    showStatus('Connecte-toi avec Google pour utiliser le planificateur.');
+    return false;
+  }
 
   function persist(message) {
+    if (!requireCloudReady()) return;
     state = Storage.save(state);
     renderAll();
     scheduleCloudAutosave();
@@ -160,10 +177,32 @@
 
   function renderDashboard() {
     const grid = $('#tripsGrid');
-    if (!state.trips.length) {
-      grid.innerHTML = '<div class="empty-state">Aucun voyage enregistré. Crée ton premier itinéraire ou charge un exemple.</div>';
+    const user = CloudSync?.getUser();
+
+    if (cloudLoading) {
+      grid.innerHTML = '<div class="empty-state">Chargement de Firebase…</div>';
       return;
     }
+
+    if (!user || !appReady) {
+      grid.innerHTML = `
+        <div class="login-gate">
+          <div class="login-gate__icon">☁️</div>
+          <h2>Connexion Google requise</h2>
+          <p>Tes voyages sont maintenant stockés uniquement dans Firebase. Connecte-toi pour charger automatiquement tes données et synchroniser chaque modification.</p>
+          <button class="button button--primary" id="dashboardSignInBtn">Se connecter avec Google</button>
+          <small>Le site n’utilise plus de sauvegarde locale de voyages ni d’export JSON.</small>
+        </div>
+      `;
+      document.getElementById('dashboardSignInBtn')?.addEventListener('click', handleCloudSignIn);
+      return;
+    }
+
+    if (!state.trips.length) {
+      grid.innerHTML = '<div class="empty-state">Aucun voyage dans Firebase pour ce compte. Crée ton premier itinéraire ou charge l’exemple.</div>';
+      return;
+    }
+
     grid.innerHTML = state.trips.map(trip => {
       const budget = Budget.computeBudget(trip);
       return `
@@ -184,13 +223,13 @@
           <div class="trip-card__actions">
             <button class="button button--primary" data-open-trip="${trip.id}">Modifier</button>
             <button class="button" data-duplicate-trip="${trip.id}">Dupliquer</button>
-            <button class="button" data-export-trip="${trip.id}">Exporter</button>
             <button class="button" data-delete-trip="${trip.id}">Supprimer</button>
           </div>
         </article>
       `;
     }).join('');
     grid.querySelectorAll('[data-open-trip]').forEach(button => button.addEventListener('click', () => {
+      if (!requireCloudReady()) return;
       state.activeTripId = button.dataset.openTrip;
       state = Storage.save(state);
       renderAll();
@@ -198,12 +237,12 @@
       switchView('trip');
     }));
     grid.querySelectorAll('[data-duplicate-trip]').forEach(button => button.addEventListener('click', () => {
+      if (!requireCloudReady()) return;
       state = Storage.duplicateTrip(state, button.dataset.duplicateTrip);
       renderAll();
       scheduleCloudAutosave();
-      showStatus('Voyage dupliqué.');
+      showStatus('Voyage dupliqué et synchronisé.');
     }));
-    grid.querySelectorAll('[data-export-trip]').forEach(button => button.addEventListener('click', () => exportTrip(button.dataset.exportTrip)));
     grid.querySelectorAll('[data-delete-trip]').forEach(button => button.addEventListener('click', () => deleteTrip(button.dataset.deleteTrip)));
   }
 
@@ -221,6 +260,7 @@
 
   function saveTripForm(event) {
     event.preventDefault();
+    if (!requireCloudReady()) return;
     let trip = activeTrip();
     if (!trip) trip = Storage.normalizeTrip({});
     const data = new FormData(event.currentTarget);
@@ -235,6 +275,7 @@
   }
 
   function createNewTrip() {
+    if (!requireCloudReady()) return;
     const trip = Storage.normalizeTrip({
       name: 'Nouveau voyage',
       currency: '€',
@@ -250,6 +291,7 @@
   }
 
   function loadDemoTrip() {
+    if (!requireCloudReady()) return;
     const demo = Storage.normalizeTrip({
       name: 'Exemple — Paris à Venise',
       area: 'France · Italie',
@@ -284,8 +326,9 @@
   }
 
   async function deleteTrip(id) {
+    if (!requireCloudReady()) return;
     const trip = state.trips.find(item => item.id === id);
-    const ok = await confirmAction('Supprimer ce voyage ?', `“${trip?.name || 'Voyage'}” sera retiré du navigateur. Exporte-le avant si tu veux le conserver.`);
+    const ok = await confirmAction('Supprimer ce voyage ?', `“${trip?.name || 'Voyage'}” sera supprimé de Firebase pour ton compte Google.`);
     if (!ok) return;
     state = Storage.deleteTrip(state, id);
     renderAll();
@@ -352,6 +395,7 @@
 
   function saveStepForm(event) {
     event.preventDefault();
+    if (!requireCloudReady()) return;
     const trip = activeTrip();
     if (!trip) return;
     const form = event.currentTarget;
@@ -388,6 +432,7 @@
   }
 
   async function deleteStep(id) {
+    if (!requireCloudReady()) return;
     const trip = activeTrip();
     const step = trip?.steps.find(item => item.id === id);
     const ok = await confirmAction('Supprimer cette étape ?', `“${step?.name || 'Étape'}” sera retirée de la carte, de l’itinéraire et du carnet.`);
@@ -399,6 +444,7 @@
   }
 
   function moveStep(id, direction) {
+    if (!requireCloudReady()) return;
     const trip = activeTrip();
     const steps = U.sortSteps(trip.steps);
     const index = steps.findIndex(step => step.id === id);
@@ -454,6 +500,7 @@
 
   function saveExpenseForm(event) {
     event.preventDefault();
+    if (!requireCloudReady()) return;
     const trip = activeTrip();
     if (!trip) return;
     const data = new FormData(event.currentTarget);
@@ -476,6 +523,7 @@
   }
 
   async function deleteExpense(id) {
+    if (!requireCloudReady()) return;
     const ok = await confirmAction('Supprimer cette dépense ?', 'Elle sera retirée du calcul du budget.');
     if (!ok) return;
     const trip = activeTrip();
@@ -488,6 +536,7 @@
   }
 
   async function optimizeActiveTrip() {
+    if (!requireCloudReady()) return;
     const trip = activeTrip();
     if (!trip || trip.steps.length < 3) return showStatus('Il faut au moins trois étapes pour optimiser le parcours.');
     const optimized = Suggestions.optimizeOrder(trip, state.settings);
@@ -539,6 +588,7 @@
   }
 
   function addChecklistItem() {
+    if (!requireCloudReady()) return;
     const trip = activeTrip();
     if (!trip) return showStatus('Sélectionne un voyage.');
     const category = prompt('Dans quelle liste ajouter cet élément ?', 'avant départ');
@@ -594,6 +644,7 @@
   }
 
   function saveSettings() {
+    if (!requireCloudReady()) return;
     $$('#settingsPanel [data-setting]').forEach(input => {
       const [group, key] = input.dataset.setting.split('.');
       state.settings[group] ||= {};
@@ -612,48 +663,6 @@
     MapView.updateMap(trip, state.settings);
   }
 
-  function exportCurrentTrip() {
-    const trip = activeTrip();
-    if (!trip) return showStatus('Aucun voyage à exporter.');
-    exportTrip(trip.id);
-  }
-
-  function exportTrip(id) {
-    const trip = state.trips.find(item => item.id === id);
-    if (!trip) return;
-    U.downloadJson(trip, `${U.slug(trip.name)}.json`);
-  }
-
-  function exportAllTrips() {
-    U.downloadJson({ version: 1, exportedAt: new Date().toISOString(), settings: state.settings, trips: state.trips }, 'travel-planner-sauvegarde.json');
-  }
-
-  async function importJsonFile(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      const payload = await U.readJsonFile(file);
-      state = Storage.importData(state, payload);
-      renderAll();
-      scheduleCloudAutosave();
-      showStatus('Import terminé.');
-    } catch (error) {
-      showStatus(error.message || 'Import impossible.');
-    } finally {
-      event.target.value = '';
-    }
-  }
-
-  async function resetAll() {
-    const ok = await confirmAction('Tout réinitialiser ?', 'Tous les voyages stockés dans ce navigateur seront supprimés.');
-    if (!ok) return;
-    state = Storage.reset();
-    renderAll();
-    switchView('dashboard');
-    showStatus('Données locales réinitialisées.');
-  }
-
-
   function bindCloudActions() {
     if (!CloudSync) return;
     const bind = (id, handler) => {
@@ -663,35 +672,81 @@
     bind('cloudAuthBtn', handleCloudAuth);
     bind('cloudSignInBtn', handleCloudSignIn);
     bind('cloudSignOutBtn', handleCloudSignOut);
-    bind('cloudPushBtn', pushCloudBackup);
-    bind('cloudPullBtn', pullCloudBackup);
-    bind('saveFirebaseConfigBtn', saveFirebaseConfig);
-    bind('clearFirebaseConfigBtn', clearFirebaseConfig);
-    const autoToggle = document.getElementById('cloudAutoSyncToggle');
-    if (autoToggle) {
-      autoToggle.addEventListener('change', () => {
-        CloudSync.setAutoSyncEnabled(autoToggle.checked);
-        updateCloudUi();
-        if (autoToggle.checked) scheduleCloudAutosave(250);
+  }
+
+  async function initCloudSync() {
+    if (!CloudSync) {
+      cloudLoading = false;
+      showStatus('Module Firebase introuvable.');
+      renderAll();
+      return;
+    }
+
+    CloudSync.onAuthChange(payload => {
+      updateCloudUi(payload);
+      handleCloudUserChange(payload.user).catch(error => {
+        console.error(error);
+        cloudLoading = false;
+        appReady = false;
+        updateCloudUi({ status: error.message });
+        renderAll();
+        showStatus(error.message || 'Chargement Firebase impossible.');
       });
+    });
+
+    try {
+      if (!CloudSync.isConfigured()) {
+        cloudLoading = false;
+        appReady = false;
+        updateCloudUi({ configured: false, status: 'Firebase n’est pas configuré dans js/firebase-config.js.' });
+        renderAll();
+        return;
+      }
+      await CloudSync.init();
+      await CloudSync.waitForAuthState();
+    } catch (error) {
+      console.error(error);
+      cloudLoading = false;
+      appReady = false;
+      updateCloudUi({ status: error.message, configured: false });
+      renderAll();
+      showStatus(error.message || 'Initialisation Firebase impossible.');
     }
   }
 
-  function initCloudSync() {
-    if (!CloudSync) return;
-    fillFirebaseConfigInput();
-    CloudSync.onAuthChange(updateCloudUi);
-    updateCloudUi();
-    if (CloudSync.isConfigured()) {
-      CloudSync.init().catch(error => updateCloudUi({ status: error.message, configured: false }));
+  async function handleCloudUserChange(user) {
+    if (!user) {
+      loadedCloudUid = null;
+      appReady = false;
+      cloudLoading = false;
+      state = Storage.createEmptyState();
+      renderAll();
+      return;
     }
-  }
 
-  function fillFirebaseConfigInput() {
-    const input = document.getElementById('firebaseConfigInput');
-    if (!input || !CloudSync) return;
-    const config = CloudSync.getConfig();
-    input.value = JSON.stringify(config, null, 2);
+    if (loadedCloudUid === user.uid && appReady) return;
+
+    loadedCloudUid = user.uid;
+    appReady = false;
+    cloudLoading = true;
+    renderAll();
+
+    const backup = await CloudSync.loadState();
+    if (backup?.state) {
+      state = Storage.save(backup.state);
+      cloudLastSavedAt = backup.clientUpdatedAt || '';
+    } else {
+      state = Storage.createEmptyState();
+      await CloudSync.saveState(state);
+      cloudLastSavedAt = new Date().toISOString();
+    }
+
+    appReady = true;
+    cloudLoading = false;
+    applyTheme(state.settings.theme || 'light');
+    renderAll();
+    updateCloudUi({ user, status: CloudSync.getStatus(), configured: true });
+    showStatus('Voyages chargés depuis Firebase. Sauvegarde automatique active.');
   }
 
   function updateCloudUi(payload = {}) {
@@ -699,7 +754,6 @@
     const user = payload.user ?? CloudSync.getUser();
     const configured = payload.configured ?? CloudSync.isConfigured();
     const status = payload.status || CloudSync.getStatus();
-    const autoSync = payload.autoSync ?? CloudSync.isAutoSyncEnabled();
     const statusEl = document.getElementById('cloudStatus');
     const profile = document.getElementById('cloudProfile');
     const avatar = document.getElementById('cloudAvatar');
@@ -708,33 +762,36 @@
     const topButton = document.getElementById('cloudAuthBtn');
     const signInBtn = document.getElementById('cloudSignInBtn');
     const signOutBtn = document.getElementById('cloudSignOutBtn');
-    const pushBtn = document.getElementById('cloudPushBtn');
-    const pullBtn = document.getElementById('cloudPullBtn');
-    const autoToggle = document.getElementById('cloudAutoSyncToggle');
+    const deleteCloudBtn = document.getElementById('deleteCloudDataBtn');
+    const syncMeta = document.getElementById('cloudSyncMeta');
+    const protectedControls = ['newTripBtn', 'createFirstTripBtn', 'loadDemoBtn', 'tripSelector', 'saveSettingsBtn'];
 
-    if (statusEl) statusEl.textContent = status || (configured ? 'Firebase configuré.' : 'Firebase non configuré.');
+    document.body.classList.toggle('is-cloud-locked', !appReady || !user);
+
+    if (statusEl) statusEl.textContent = status || (configured ? 'Connexion Google requise.' : 'Firebase non configuré.');
     if (profile) profile.hidden = !user;
     if (avatar && user) avatar.src = user.photoURL || '';
     if (name && user) name.textContent = user.displayName || 'Compte Google';
     if (email && user) email.textContent = user.email || '';
-    if (topButton) topButton.textContent = user ? '☁️ Connecté' : (configured ? '☁️ Connexion' : '☁️ Configurer');
+    if (topButton) topButton.textContent = user ? '☁️ Connecté' : '☁️ Connexion Google';
     if (signInBtn) {
       signInBtn.disabled = !configured || Boolean(user);
       signInBtn.textContent = user ? 'Connecté avec Google' : 'Se connecter avec Google';
     }
     if (signOutBtn) signOutBtn.disabled = !user;
-    if (pushBtn) pushBtn.disabled = !user;
-    if (pullBtn) pullBtn.disabled = !user;
-    if (autoToggle) {
-      autoToggle.checked = Boolean(autoSync);
-      autoToggle.disabled = !user;
-    }
+    if (deleteCloudBtn) deleteCloudBtn.disabled = !user || !appReady;
+    if (syncMeta) syncMeta.textContent = cloudLastSavedAt ? `Dernière sauvegarde : ${U.formatDate(cloudLastSavedAt)} ${new Date(cloudLastSavedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : 'Sauvegarde Firebase automatique active après connexion.';
+
+    protectedControls.forEach(id => {
+      const element = document.getElementById(id);
+      if (element) element.disabled = !appReady || !user;
+    });
   }
 
   async function handleCloudAuth() {
     if (!CloudSync?.isConfigured()) {
       switchView('settings');
-      showStatus('Renseigne d’abord la configuration Firebase dans Paramètres.');
+      showStatus('Firebase doit être renseigné dans js/firebase-config.js.');
       return;
     }
     if (CloudSync.getUser()) {
@@ -746,104 +803,78 @@
 
   async function handleCloudSignIn() {
     try {
+      cloudLoading = true;
+      renderAll();
       await CloudSync.signIn();
       updateCloudUi();
-      showStatus('Connexion Google réussie. Tu peux maintenant sauvegarder en ligne.');
     } catch (error) {
       console.error(error);
+      cloudLoading = false;
       showStatus(error.message || 'Connexion Google impossible.');
       updateCloudUi({ status: error.message });
+      renderAll();
     }
   }
 
   async function handleCloudSignOut() {
+    const ok = await confirmAction('Se déconnecter ?', 'Les voyages seront retirés de cette session. Ils resteront dans Firebase pour ce compte Google.');
+    if (!ok) return;
     try {
+      await flushCloudAutosave();
       await CloudSync.signOut();
-      updateCloudUi();
+      state = Storage.createEmptyState();
+      appReady = false;
+      loadedCloudUid = null;
+      renderAll();
       showStatus('Déconnexion Google effectuée.');
     } catch (error) {
       showStatus(error.message || 'Déconnexion impossible.');
     }
   }
 
-  function parseFirebaseConfigInput() {
-    const input = document.getElementById('firebaseConfigInput');
-    const value = input?.value?.trim();
-    if (!value) throw new Error('Colle d’abord la configuration Firebase.');
-    const cleaned = value
-      .replace(/^const\s+firebaseConfig\s*=\s*/m, '')
-      .replace(/^window\.TRAVEL_PLANNER_FIREBASE_CONFIG\s*=\s*/m, '')
-      .replace(/;\s*$/, '')
-      .trim();
+  async function saveCloudStateNow(silent = true) {
+    if (!appReady || !CloudSync?.getUser()) return;
     try {
-      return JSON.parse(cleaned);
-    } catch (jsonError) {
-      try {
-        return Function(`"use strict"; return (${cleaned});`)();
-      } catch (jsError) {
-        throw new Error('La configuration Firebase doit être un objet JSON ou JavaScript valide.');
-      }
-    }
-  }
-
-  function saveFirebaseConfig() {
-    try {
-      const config = parseFirebaseConfigInput();
-      CloudSync.saveConfig(config);
-      fillFirebaseConfigInput();
-      updateCloudUi();
-      CloudSync.init().then(() => updateCloudUi()).catch(error => updateCloudUi({ status: error.message }));
-      showStatus('Configuration Firebase enregistrée dans ce navigateur.');
-    } catch (error) {
-      showStatus(error.message);
-    }
-  }
-
-  async function clearFirebaseConfig() {
-    const ok = await confirmAction('Effacer la configuration Firebase locale ?', 'Le fichier js/firebase-config.js ne sera pas modifié, mais la configuration enregistrée dans ce navigateur sera supprimée.');
-    if (!ok) return;
-    CloudSync.clearStoredConfig();
-    fillFirebaseConfigInput();
-    updateCloudUi();
-    showStatus('Configuration Firebase locale effacée.');
-  }
-
-  async function pushCloudBackup(silent = false) {
-    try {
-      await CloudSync.saveState(state);
-      updateCloudUi();
-      if (!silent) showStatus('Sauvegarde Google mise à jour.');
+      const savedState = Storage.save(state);
+      state = savedState;
+      await CloudSync.saveState(savedState);
+      cloudLastSavedAt = new Date().toISOString();
+      updateCloudUi({ status: CloudSync.getStatus() });
+      if (!silent) showStatus('Sauvegardé dans Firebase.');
     } catch (error) {
       console.error(error);
       updateCloudUi({ status: error.message });
-      if (!silent) showStatus(error.message || 'Sauvegarde Google impossible.');
+      if (!silent) showStatus(error.message || 'Sauvegarde Firebase impossible.');
     }
   }
 
-  async function pullCloudBackup() {
-    try {
-      const backup = await CloudSync.loadState();
-      if (!backup?.state) {
-        showStatus('Aucune sauvegarde Google trouvée pour ce compte.');
-        return;
-      }
-      const ok = await confirmAction('Charger la sauvegarde Google ?', 'Les données locales de ce navigateur seront remplacées par la sauvegarde en ligne de ton compte Google.');
-      if (!ok) return;
-      state = Storage.save(backup.state);
-      renderAll();
-      updateCloudUi();
-      showStatus('Sauvegarde Google chargée localement.');
-    } catch (error) {
-      console.error(error);
-      updateCloudUi({ status: error.message });
-      showStatus(error.message || 'Chargement Google impossible.');
-    }
-  }
-
-  function scheduleCloudAutosave(delay = 1400) {
-    if (!CloudSync?.isAutoSyncEnabled() || !CloudSync.getUser()) return;
+  function scheduleCloudAutosave(delay = 650) {
+    if (!appReady || !CloudSync?.getUser()) return;
     clearTimeout(cloudAutosaveTimer);
-    cloudAutosaveTimer = setTimeout(() => pushCloudBackup(true), delay);
+    updateCloudUi({ status: 'Sauvegarde Firebase en attente…' });
+    cloudAutosaveTimer = setTimeout(() => saveCloudStateNow(true), delay);
+  }
+
+  async function flushCloudAutosave() {
+    clearTimeout(cloudAutosaveTimer);
+    await saveCloudStateNow(true);
+  }
+
+  async function deleteCloudData() {
+    if (!requireCloudReady()) return;
+    const ok = await confirmAction('Supprimer toutes les données Firebase ?', 'Tous les voyages de ce compte Google seront supprimés de Firestore. Cette action est définitive.');
+    if (!ok) return;
+    try {
+      await CloudSync.deleteState();
+      state = Storage.createEmptyState();
+      appReady = true;
+      renderAll();
+      updateCloudUi({ status: 'Données Firebase supprimées. Tu peux créer un nouveau voyage.' });
+      showStatus('Données Firebase supprimées.');
+    } catch (error) {
+      console.error(error);
+      showStatus(error.message || 'Suppression Firebase impossible.');
+    }
   }
 
   function confirmAction(title, message) {

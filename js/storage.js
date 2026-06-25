@@ -1,7 +1,9 @@
 (function () {
   'use strict';
 
-  const KEY = 'travelPlanner:v1';
+  // Depuis la version Firebase-only, ce module ne persiste plus les voyages dans localStorage.
+  // Il sert uniquement à normaliser l'état en mémoire avant lecture/écriture Firestore.
+  const LEGACY_KEY = 'travelPlanner:v1';
   const { defaultSettings, deepMerge, uid, createDefaultChecklists, clone } = window.TravelUtils;
 
   const emptyState = {
@@ -10,6 +12,10 @@
     settings: defaultSettings,
     trips: []
   };
+
+  function createEmptyState() {
+    return clone(emptyState);
+  }
 
   function normalizeTrip(trip = {}) {
     const now = new Date().toISOString();
@@ -59,38 +65,30 @@
       })) : [],
       checklists: trip.checklists || createDefaultChecklists(),
       createdAt: trip.createdAt || now,
-      updatedAt: now
+      updatedAt: trip.updatedAt || now
     };
+  }
+
+  function normalizeState(state = {}) {
+    const cleaned = {
+      version: 1,
+      activeTripId: state.activeTripId || null,
+      settings: deepMerge(defaultSettings, state.settings || {}),
+      trips: Array.isArray(state.trips) ? state.trips.map(normalizeTrip) : []
+    };
+    if (!cleaned.activeTripId && cleaned.trips[0]) cleaned.activeTripId = cleaned.trips[0].id;
+    if (cleaned.activeTripId && !cleaned.trips.some(trip => trip.id === cleaned.activeTripId)) {
+      cleaned.activeTripId = cleaned.trips[0]?.id || null;
+    }
+    return cleaned;
   }
 
   function load() {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (!raw) return clone(emptyState);
-      const parsed = JSON.parse(raw);
-      const state = {
-        version: 1,
-        activeTripId: parsed.activeTripId || null,
-        settings: deepMerge(defaultSettings, parsed.settings || {}),
-        trips: Array.isArray(parsed.trips) ? parsed.trips.map(normalizeTrip) : []
-      };
-      if (!state.activeTripId && state.trips[0]) state.activeTripId = state.trips[0].id;
-      return state;
-    } catch (error) {
-      console.error(error);
-      return clone(emptyState);
-    }
+    return createEmptyState();
   }
 
   function save(state) {
-    const cleaned = {
-      version: 1,
-      activeTripId: state.activeTripId || state.trips?.[0]?.id || null,
-      settings: deepMerge(defaultSettings, state.settings || {}),
-      trips: (state.trips || []).map(normalizeTrip)
-    };
-    localStorage.setItem(KEY, JSON.stringify(cleaned));
-    return cleaned;
+    return normalizeState(state);
   }
 
   function getTrip(state, id = state.activeTripId) {
@@ -99,50 +97,61 @@
 
   function upsertTrip(state, trip) {
     const normalized = normalizeTrip(trip);
-    const index = state.trips.findIndex(item => item.id === normalized.id);
-    if (index >= 0) state.trips[index] = normalized;
-    else state.trips.unshift(normalized);
-    state.activeTripId = normalized.id;
-    return save(state);
+    const next = normalizeState(state);
+    const index = next.trips.findIndex(item => item.id === normalized.id);
+    if (index >= 0) next.trips[index] = normalized;
+    else next.trips.unshift(normalized);
+    next.activeTripId = normalized.id;
+    return save(next);
   }
 
   function deleteTrip(state, id) {
-    state.trips = state.trips.filter(trip => trip.id !== id);
-    if (state.activeTripId === id) state.activeTripId = state.trips[0]?.id || null;
-    return save(state);
+    const next = normalizeState(state);
+    next.trips = next.trips.filter(trip => trip.id !== id);
+    if (next.activeTripId === id) next.activeTripId = next.trips[0]?.id || null;
+    return save(next);
   }
 
   function duplicateTrip(state, id) {
-    const original = getTrip(state, id);
-    if (!original) return state;
-    const copy = normalizeTrip({ ...clone(original), id: uid('trip'), name: `${original.name} — copie`, status: 'brouillon', createdAt: new Date().toISOString() });
-    state.trips.unshift(copy);
-    state.activeTripId = copy.id;
-    return save(state);
+    const next = normalizeState(state);
+    const original = getTrip(next, id);
+    if (!original) return next;
+    const copy = normalizeTrip({ ...clone(original), id: uid('trip'), name: `${original.name} — copie`, status: 'brouillon', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    next.trips.unshift(copy);
+    next.activeTripId = copy.id;
+    return save(next);
   }
 
   function importData(state, payload) {
     if (!payload || typeof payload !== 'object') throw new Error('Format de sauvegarde non reconnu.');
     const incomingTrips = Array.isArray(payload.trips) ? payload.trips : (payload.id ? [payload] : []);
     if (!incomingTrips.length) throw new Error('Aucun voyage trouvé dans ce fichier.');
-    const existingById = new Map(state.trips.map(trip => [trip.id, trip]));
+    const next = normalizeState(state);
+    const existingById = new Map(next.trips.map(trip => [trip.id, trip]));
     incomingTrips.forEach(trip => {
       const normalized = normalizeTrip(trip);
       if (existingById.has(normalized.id)) normalized.id = uid('trip');
-      state.trips.unshift(normalized);
-      state.activeTripId = normalized.id;
+      next.trips.unshift(normalized);
+      next.activeTripId = normalized.id;
     });
-    if (payload.settings) state.settings = deepMerge(state.settings, payload.settings);
-    return save(state);
+    if (payload.settings) next.settings = deepMerge(next.settings, payload.settings);
+    return save(next);
   }
 
   function reset() {
-    localStorage.removeItem(KEY);
-    return clone(emptyState);
+    return createEmptyState();
+  }
+
+  function clearLegacyLocalBackup() {
+    try {
+      localStorage.removeItem(LEGACY_KEY);
+    } catch (error) {
+      console.warn('Impossible de nettoyer l’ancienne sauvegarde locale.', error);
+    }
   }
 
   window.TravelStorage = {
-    KEY,
+    KEY: LEGACY_KEY,
     load,
     save,
     getTrip,
@@ -151,6 +160,9 @@
     duplicateTrip,
     importData,
     reset,
-    normalizeTrip
+    normalizeTrip,
+    normalizeState,
+    createEmptyState,
+    clearLegacyLocalBackup
   };
 })();
