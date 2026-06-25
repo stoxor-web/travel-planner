@@ -117,7 +117,6 @@
     on('addExpenseBtn', 'click', () => openExpenseDialog());
     on('expenseForm', 'submit', saveExpenseForm);
     on('fitMapBtn', 'click', MapView.fitBounds);
-    on('mapDiagBtn', 'click', showMapDiagnostics);
     on('refreshItineraryBtn', 'click', () => renderItinerary());
     on('optimizeBtn', 'click', optimizeActiveTrip);
     on('addChecklistBlockBtn', 'click', addChecklistBlock);
@@ -878,20 +877,6 @@
     }
   }
 
-
-  function showMapDiagnostics() {
-    const diagnostic = MapView?.getDiagnostics?.();
-    if (!diagnostic) {
-      showStatus('Diagnostic carte indisponible.');
-      return;
-    }
-    const details = [
-      diagnostic.mapCreated ? 'carte intégrée active' : 'carte non créée',
-      diagnostic.containerFound ? `zone ${diagnostic.containerWidth}×${diagnostic.containerHeight}px` : 'zone carte introuvable',
-      `${diagnostic.stepsWithCoordinates || 0} étape(s) géolocalisée(s)`
-    ].join(' · ');
-    showStatus(`Carte : ${details}${diagnostic.lastError ? ` · ${diagnostic.lastError}` : ''}`);
-  }
 
   function bindCloudActions() {
     if (!CloudSync) return;
