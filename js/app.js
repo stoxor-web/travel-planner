@@ -13,6 +13,7 @@
   let cloudAutosaveTimer = null;
   let cloudLastSavedAt = '';
   let loadedCloudUid = null;
+  let cloudSignInInProgress = false;
   let appReady = false;
   let cloudLoading = true;
   let currentView = 'dashboard';
@@ -104,7 +105,7 @@
 
   function switchView(view) {
     if (!titles[view]) view = 'dashboard';
-    if (!appReady && !['dashboard', 'settings'].includes(view)) view = 'dashboard';
+    if (!appReady && view !== 'dashboard') view = 'dashboard';
     currentView = view;
     location.hash = view;
     $$('.view').forEach(section => section.classList.toggle('is-visible', section.id === `view-${view}`));
@@ -185,16 +186,18 @@
     }
 
     if (!user || !appReady) {
+      const configured = CloudSync?.isConfigured?.();
       grid.innerHTML = `
         <div class="auth-landing auth-landing--simple">
           <div class="auth-card auth-card--simple">
             <div class="auth-card__icon">✈️</div>
-            <h2>Connecte-toi à ton espace voyage</h2>
-            <button class="button button--google auth-card__button" id="dashboardSignInBtn">
+            <p class="eyebrow">Accès privé</p>
+            <h2>Connecte-toi pour accéder à tes voyages</h2>
+            <button class="button button--google auth-card__button" id="dashboardSignInBtn" ${configured ? '' : 'disabled'}>
               <span class="google-mark">G</span>
-              <span>Continuer avec Google</span>
+              <span>${configured ? 'Continuer avec Google' : 'Configuration requise'}</span>
             </button>
-            <small>Chargement et sauvegarde automatiques.</small>
+            <small>${configured ? 'Tes voyages se chargent automatiquement.' : 'Ajoute ta configuration Firebase.'}</small>
           </div>
         </div>
       `;
@@ -203,7 +206,14 @@
     }
 
     if (!state.trips.length) {
-      grid.innerHTML = '<div class="empty-state">Aucun voyage pour le moment. Crée ton premier itinéraire.</div>';
+      grid.innerHTML = `
+        <div class="empty-state empty-state--action">
+          <strong>Aucun voyage pour le moment.</strong>
+          <span>Crée ton premier itinéraire pour commencer.</span>
+          <button class="button button--primary" id="emptyCreateTripBtn">Créer un voyage</button>
+        </div>
+      `;
+      document.getElementById('emptyCreateTripBtn')?.addEventListener('click', createNewTrip);
       return;
     }
 
@@ -245,7 +255,7 @@
       state = Storage.duplicateTrip(state, button.dataset.duplicateTrip);
       renderAll();
       scheduleCloudAutosave();
-      showStatus('Voyage dupliqué et synchronisé.');
+      showStatus('Voyage dupliqué.');
     }));
     grid.querySelectorAll('[data-delete-trip]').forEach(button => button.addEventListener('click', () => deleteTrip(button.dataset.deleteTrip)));
   }
@@ -702,7 +712,7 @@
       if (!CloudSync.isConfigured()) {
         cloudLoading = false;
         appReady = false;
-        updateCloudUi({ configured: false, status: 'Configuration cloud manquante.' });
+        updateCloudUi({ configured: false, status: 'Configuration Firebase manquante.' });
         renderAll();
         return;
       }
@@ -720,6 +730,7 @@
 
   async function handleCloudUserChange(user) {
     if (!user) {
+      cloudSignInInProgress = false;
       loadedCloudUid = null;
       appReady = false;
       cloudLoading = false;
@@ -747,6 +758,7 @@
 
     appReady = true;
     cloudLoading = false;
+    cloudSignInInProgress = false;
     applyTheme(state.settings.theme || 'light');
     renderAll();
     updateCloudUi({ user, status: CloudSync.getStatus(), configured: true });
@@ -768,12 +780,13 @@
     const signOutBtn = document.getElementById('cloudSignOutBtn');
     const deleteCloudBtn = document.getElementById('deleteCloudDataBtn');
     const syncMeta = document.getElementById('cloudSyncMeta');
+    const sidebarState = document.getElementById('sidebarAccountState');
     const protectedControls = ['newTripBtn', 'createFirstTripBtn', 'loadDemoBtn', 'tripSelector', 'saveSettingsBtn'];
 
     document.body.classList.toggle('is-cloud-locked', !appReady || !user);
 
     if (statusEl) {
-      const statusText = status || (configured ? 'Connecte-toi pour continuer.' : 'Configuration cloud manquante.');
+      const statusText = status || (configured ? 'Connecte-toi pour continuer.' : 'Configuration Firebase manquante.');
       const statusMode = !configured ? 'error' : user && appReady ? 'success' : cloudLoading ? 'loading' : 'idle';
       statusEl.classList.remove('cloud-status--idle', 'cloud-status--success', 'cloud-status--loading', 'cloud-status--error');
       statusEl.classList.add(`cloud-status--${statusMode}`);
@@ -785,21 +798,21 @@
     if (email && user) email.textContent = user.email || '';
     if (topButton) {
       topButton.classList.toggle('is-connected', Boolean(user));
-      topButton.innerHTML = user
-        ? '<span class="cloud-dot"></span><span>Connecté</span>'
-        : '<span class="cloud-dot"></span><span>Compte</span>';
+      const label = user ? (appReady ? 'Connecté' : 'Chargement') : 'Connexion';
+      topButton.innerHTML = `<span class="cloud-dot"></span><span>${label}</span>`;
     }
     if (signInBtn) {
-      signInBtn.disabled = !configured || Boolean(user) || cloudLoading;
-      signInBtn.innerHTML = cloudLoading && !user
-        ? '<span class="google-mark">…</span><span>Connexion en cours…</span>'
+      signInBtn.disabled = !configured || Boolean(user) || cloudLoading || cloudSignInInProgress;
+      signInBtn.innerHTML = (cloudLoading || cloudSignInInProgress) && !user
+        ? '<span class="google-mark">…</span><span>Connexion…</span>'
         : user
           ? '<span class="google-mark">✓</span><span>Connecté avec Google</span>'
           : '<span class="google-mark">G</span><span>Se connecter avec Google</span>';
     }
     if (signOutBtn) signOutBtn.disabled = !user;
     if (deleteCloudBtn) deleteCloudBtn.disabled = !user || !appReady;
-    if (syncMeta) syncMeta.textContent = cloudLastSavedAt ? `Dernière sauvegarde : ${U.formatDate(cloudLastSavedAt)} ${new Date(cloudLastSavedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : 'Connecté à Google.';
+    if (syncMeta) syncMeta.textContent = user ? (cloudLastSavedAt ? `Sauvegardé le ${U.formatDate(cloudLastSavedAt)} à ${new Date(cloudLastSavedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : 'Connecté') : 'Non connecté';
+    if (sidebarState) sidebarState.textContent = user ? 'Connecté' : 'Connexion requise';
 
     protectedControls.forEach(id => {
       const element = document.getElementById(id);
@@ -810,7 +823,7 @@
   async function handleCloudAuth() {
     if (!CloudSync?.isConfigured()) {
       switchView('settings');
-      showStatus('Configuration cloud manquante.');
+      showStatus('Configuration Firebase manquante.');
       return;
     }
     if (CloudSync.getUser()) {
@@ -821,17 +834,26 @@
   }
 
   async function handleCloudSignIn() {
+    if (cloudSignInInProgress) return;
     try {
+      cloudSignInInProgress = true;
       cloudLoading = true;
+      updateCloudUi({ status: 'Connexion…' });
       renderAll();
-      await CloudSync.signIn();
-      updateCloudUi();
+      const user = await CloudSync.signIn();
+      if (!user) {
+        showStatus('Redirection vers Google…');
+        return;
+      }
+      updateCloudUi({ user, status: 'Connecté.' });
     } catch (error) {
       console.error(error);
       cloudLoading = false;
       showStatus(error.message || 'Connexion impossible.');
       updateCloudUi({ status: error.message });
       renderAll();
+    } finally {
+      cloudSignInInProgress = false;
     }
   }
 
@@ -845,7 +867,7 @@
       appReady = false;
       loadedCloudUid = null;
       renderAll();
-      showStatus('Déconnexion effectuée.');
+      showStatus('Déconnecté.');
     } catch (error) {
       showStatus(error.message || 'Déconnexion impossible.');
     }
@@ -888,7 +910,7 @@
       state = Storage.createEmptyState();
       appReady = true;
       renderAll();
-      updateCloudUi({ status: 'Données supprimées. Tu peux créer un nouveau voyage.' });
+      updateCloudUi({ status: 'Données supprimées.' });
       showStatus('Données supprimées.');
     } catch (error) {
       console.error(error);
