@@ -113,6 +113,13 @@
       button: $('#placeSearchBtn'),
       resultsContainer: $('#placeSearchResults'),
       statusElement: $('#placeSearchStatus'),
+      getContext: () => {
+        const trip = activeTrip();
+        return {
+          area: trip?.area || trip?.name || '',
+          steps: U.sortSteps(trip?.steps || []).filter(U.isValidCoord)
+        };
+      },
       onSelect: place => {
         if (!form) return;
         form.elements.name.value = place.name || form.elements.name.value;
@@ -122,6 +129,11 @@
         if ([...form.elements.type.options].some(option => option.value === place.type)) {
           form.elements.type.value = place.type;
         }
+        if (place.type === 'ville') form.elements.color.value = '#2563eb';
+        if (place.type === 'hôtel') form.elements.color.value = '#7c3aed';
+        if (place.type === 'restaurant') form.elements.color.value = '#f97316';
+        if (place.type === 'gare' || place.type === 'aéroport') form.elements.color.value = '#0891b2';
+        if (place.type === 'activité') form.elements.color.value = '#16a34a';
       }
     });
   }
