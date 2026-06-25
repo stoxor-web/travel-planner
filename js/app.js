@@ -92,7 +92,7 @@
     on('mapDiagBtn', 'click', showMapDiagnostics);
     on('refreshItineraryBtn', 'click', () => renderItinerary());
     on('optimizeBtn', 'click', optimizeActiveTrip);
-    on('addChecklistItemBtn', 'click', addChecklistItem);
+    on('addChecklistBlockBtn', 'click', addChecklistBlock);
     on('saveSettingsBtn', 'click', saveSettings);
     on('deleteCloudDataBtn', 'click', deleteCloudData);
     bindCloudActions();
@@ -552,54 +552,223 @@
     persist('Ordre optimisé appliqué.');
   }
 
+
+  function findElementByData(attribute, value) {
+    return [...document.querySelectorAll(`[${attribute}]`)].find(element => element.getAttribute(attribute) === value) || null;
+  }
+
+  function normalizeChecklistName(name, fallback = 'Nouvelle liste') {
+    const cleaned = String(name || '').replace(/\s+/g, ' ').trim();
+    return cleaned || fallback;
+  }
+
+  function makeUniqueChecklistName(checklists, wantedName, currentName = '') {
+    const base = normalizeChecklistName(wantedName);
+    if (base === currentName) return base;
+    const existing = new Set(Object.keys(checklists || {}).filter(name => name !== currentName));
+    if (!existing.has(base)) return base;
+    let index = 2;
+    let candidate = `${base} ${index}`;
+    while (existing.has(candidate)) {
+      index += 1;
+      candidate = `${base} ${index}`;
+    }
+    return candidate;
+  }
+
+  function ensureChecklistData(trip) {
+    trip.checklists ||= U.createDefaultChecklists();
+    if (!trip.checklists || typeof trip.checklists !== 'object' || Array.isArray(trip.checklists)) {
+      trip.checklists = U.createDefaultChecklists();
+    }
+    Object.entries(trip.checklists).forEach(([category, items]) => {
+      if (!Array.isArray(items)) trip.checklists[category] = [];
+      trip.checklists[category] = trip.checklists[category].map(item => ({
+        id: item?.id || U.uid('todo'),
+        text: item?.text || 'Nouvelle tâche',
+        done: Boolean(item?.done)
+      }));
+    });
+  }
+
+  function saveChecklistChange(message = 'Préparation mise à jour.') {
+    state = Storage.save(state);
+    renderAll();
+    scheduleCloudAutosave();
+    if (message) showStatus(message);
+  }
+
   function renderChecklists() {
     const trip = activeTrip();
     const container = $('#checklists');
+    if (!container) return;
     if (!trip) {
-      container.innerHTML = '<div class="empty-state">Sélectionne un voyage pour gérer les checklists.</div>';
+      container.innerHTML = '<div class="empty-state">Sélectionne ou crée un voyage pour préparer tes listes.</div>';
       return;
     }
-    trip.checklists ||= U.createDefaultChecklists();
-    container.innerHTML = Object.entries(trip.checklists).map(([category, items]) => `
-      <article class="checklist">
-        <h3>${U.escapeHtml(category)}</h3>
-        ${(items || []).map(item => `
-          <label>
-            <input type="checkbox" data-check-category="${U.escapeHtml(category)}" data-check-id="${item.id}" ${item.done ? 'checked' : ''} />
-            <span contenteditable="true" data-check-text="${item.id}" data-check-category="${U.escapeHtml(category)}">${U.escapeHtml(item.text)}</span>
-          </label>
-        `).join('')}
-      </article>
-    `).join('');
+
+    ensureChecklistData(trip);
+    const entries = Object.entries(trip.checklists);
+    if (!entries.length) {
+      container.innerHTML = '<div class="empty-state">Aucun bloc pour le moment. Clique sur “+ Bloc” pour commencer.</div>';
+      return;
+    }
+
+    container.innerHTML = entries.map(([category, items]) => {
+      const doneCount = (items || []).filter(item => item.done).length;
+      return `
+        <article class="checklist" data-checklist-card="${U.escapeHtml(category)}">
+          <div class="checklist__header">
+            <label class="sr-only" for="checklist-title-${U.slug(category)}">Nom du bloc</label>
+            <input class="checklist__title input" id="checklist-title-${U.slug(category)}" data-checklist-title="${U.escapeHtml(category)}" value="${U.escapeHtml(category)}" />
+            <button class="icon-button danger" type="button" data-delete-checklist="${U.escapeHtml(category)}" title="Supprimer ce bloc" aria-label="Supprimer le bloc ${U.escapeHtml(category)}">×</button>
+          </div>
+          <div class="checklist__meta">${doneCount}/${items.length} terminé(s)</div>
+          <div class="checklist__items">
+            ${(items || []).length ? (items || []).map(item => `
+              <div class="checklist-item">
+                <input type="checkbox" data-check-category="${U.escapeHtml(category)}" data-check-id="${item.id}" ${item.done ? 'checked' : ''} aria-label="Marquer comme fait" />
+                <input class="checklist-item__text input" data-check-text="${item.id}" data-check-category="${U.escapeHtml(category)}" value="${U.escapeHtml(item.text)}" placeholder="Nom de la tâche" />
+                <button class="icon-button" type="button" data-delete-check-item="${item.id}" data-check-category="${U.escapeHtml(category)}" title="Supprimer la tâche" aria-label="Supprimer la tâche">×</button>
+              </div>
+            `).join('') : '<div class="checklist__empty">Aucune tâche dans ce bloc.</div>'}
+          </div>
+          <button class="button button--soft checklist__add" type="button" data-add-check-item="${U.escapeHtml(category)}">+ Tâche</button>
+        </article>
+      `;
+    }).join('');
+
     container.querySelectorAll('[data-check-id]').forEach(input => input.addEventListener('change', () => {
       const list = trip.checklists[input.dataset.checkCategory] || [];
       const item = list.find(entry => entry.id === input.dataset.checkId);
       if (item) item.done = input.checked;
-      state = Storage.save(state);
-      renderSuggestions();
-      scheduleCloudAutosave();
+      saveChecklistChange('Tâche mise à jour.');
     }));
-    container.querySelectorAll('[data-check-text]').forEach(span => span.addEventListener('blur', () => {
-      const list = trip.checklists[span.dataset.checkCategory] || [];
-      const item = list.find(entry => entry.id === span.dataset.checkText);
-      if (item) item.text = span.textContent.trim() || item.text;
-      state = Storage.save(state);
-      scheduleCloudAutosave();
+
+    container.querySelectorAll('[data-check-text]').forEach(input => {
+      input.addEventListener('change', () => updateChecklistItemText(input));
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          input.blur();
+        }
+      });
+    });
+
+    container.querySelectorAll('[data-checklist-title]').forEach(input => {
+      input.addEventListener('change', () => renameChecklistBlock(input));
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          input.blur();
+        }
+      });
+    });
+
+    container.querySelectorAll('[data-add-check-item]').forEach(button => button.addEventListener('click', () => {
+      addChecklistItemToBlock(button.dataset.addCheckItem);
+    }));
+
+    container.querySelectorAll('[data-delete-check-item]').forEach(button => button.addEventListener('click', () => {
+      deleteChecklistItem(button.dataset.checkCategory, button.dataset.deleteCheckItem);
+    }));
+
+    container.querySelectorAll('[data-delete-checklist]').forEach(button => button.addEventListener('click', () => {
+      deleteChecklistBlock(button.dataset.deleteChecklist);
     }));
   }
 
-  function addChecklistItem() {
+  function updateChecklistItemText(input) {
+    if (!requireCloudReady()) return;
+    const trip = activeTrip();
+    if (!trip) return;
+    ensureChecklistData(trip);
+    const list = trip.checklists[input.dataset.checkCategory] || [];
+    const item = list.find(entry => entry.id === input.dataset.checkText);
+    if (!item) return;
+    const text = input.value.trim();
+    if (!text) {
+      input.value = item.text;
+      showStatus('La tâche doit avoir un nom.');
+      return;
+    }
+    item.text = text;
+    saveChecklistChange('Tâche modifiée.');
+  }
+
+  function renameChecklistBlock(input) {
+    if (!requireCloudReady()) return;
+    const trip = activeTrip();
+    if (!trip) return;
+    ensureChecklistData(trip);
+    const oldName = input.dataset.checklistTitle;
+    const newName = makeUniqueChecklistName(trip.checklists, input.value, oldName);
+    if (!oldName || !trip.checklists[oldName]) {
+      input.value = newName;
+      return;
+    }
+    if (newName === oldName) {
+      input.value = oldName;
+      return;
+    }
+    const next = {};
+    Object.entries(trip.checklists).forEach(([category, items]) => {
+      next[category === oldName ? newName : category] = items;
+    });
+    trip.checklists = next;
+    saveChecklistChange('Bloc renommé.');
+  }
+
+  function addChecklistBlock() {
     if (!requireCloudReady()) return;
     const trip = activeTrip();
     if (!trip) return showStatus('Sélectionne un voyage.');
-    const category = prompt('Dans quelle liste ajouter cet élément ?', 'avant départ');
-    if (!category) return;
-    const text = prompt('Élément à ajouter ?', '');
-    if (!text) return;
-    trip.checklists ||= U.createDefaultChecklists();
-    trip.checklists[category] ||= [];
-    trip.checklists[category].push({ id: U.uid('todo'), text, done: false });
-    persist('Élément ajouté.');
+    ensureChecklistData(trip);
+    const name = makeUniqueChecklistName(trip.checklists, 'Nouvelle liste');
+    trip.checklists[name] = [{ id: U.uid('todo'), text: 'Nouvelle tâche', done: false }];
+    saveChecklistChange('Bloc ajouté.');
+    requestAnimationFrame(() => {
+      const input = findElementByData('data-checklist-title', name);
+      input?.focus();
+      input?.select();
+    });
+  }
+
+  function addChecklistItemToBlock(category) {
+    if (!requireCloudReady()) return;
+    const trip = activeTrip();
+    if (!trip) return showStatus('Sélectionne un voyage.');
+    ensureChecklistData(trip);
+    if (!trip.checklists[category]) return showStatus('Bloc introuvable.');
+    const item = { id: U.uid('todo'), text: 'Nouvelle tâche', done: false };
+    trip.checklists[category].push(item);
+    saveChecklistChange('Tâche ajoutée.');
+    requestAnimationFrame(() => {
+      const input = findElementByData('data-check-text', item.id);
+      input?.focus();
+      input?.select();
+    });
+  }
+
+  async function deleteChecklistItem(category, itemId) {
+    if (!requireCloudReady()) return;
+    const trip = activeTrip();
+    if (!trip) return;
+    ensureChecklistData(trip);
+    const list = trip.checklists[category] || [];
+    trip.checklists[category] = list.filter(item => item.id !== itemId);
+    saveChecklistChange('Tâche supprimée.');
+  }
+
+  async function deleteChecklistBlock(category) {
+    if (!requireCloudReady()) return;
+    const trip = activeTrip();
+    if (!trip || !trip.checklists?.[category]) return;
+    const count = trip.checklists[category].length;
+    const ok = await confirmAction('Supprimer ce bloc ?', `${category} contient ${count} tâche(s).`);
+    if (!ok) return;
+    delete trip.checklists[category];
+    saveChecklistChange('Bloc supprimé.');
   }
 
   function renderJournal() {
