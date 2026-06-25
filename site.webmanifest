@@ -1,0 +1,21 @@
+{
+  "name": "Travel Planner — Lucas S.",
+  "short_name": "Travel Planner",
+  "description": "Planificateur de voyages personnel connecté avec Google.",
+  "start_url": "./#dashboard",
+  "display": "standalone",
+  "background_color": "#f6fbff",
+  "theme_color": "#0b3b66",
+  "icons": [
+    {
+      "src": "assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
