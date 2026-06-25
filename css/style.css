@@ -1495,3 +1495,101 @@ body.dark .osm-lite-attribution { background: rgba(15, 23, 42, .88); color: #cbd
   .route-editor { grid-template-columns: 1fr; }
   .osm-marker strong { display: none; }
 }
+
+/* V4 — expérience application, planning, budget et partage */
+.button--large { padding: 0.95rem 1.25rem; font-size: 1rem; }
+.button-row { display: flex; flex-wrap: wrap; gap: 0.55rem; align-items: center; justify-content: flex-end; }
+.muted { color: var(--muted); font-size: 0.9rem; }
+
+.login-gate--simple { max-width: 720px; margin: 1rem auto; text-align: center; padding: 2rem; }
+.login-gate--simple p { max-width: 520px; margin: 0.5rem auto 1.25rem; }
+
+.dashboard-current {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.2fr) 2fr;
+  gap: 1rem;
+  padding: 1.35rem;
+  margin: 1rem 0;
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 12%, var(--surface)), var(--surface));
+  box-shadow: var(--shadow);
+}
+.dashboard-current__stats { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 0.75rem; }
+.dashboard-current__stats article { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 0.9rem; }
+.dashboard-current__stats strong { display:block; font-size: 1.25rem; }
+.dashboard-current__stats span, .dashboard-next { color: var(--muted); }
+.dashboard-current__actions { grid-column: 1 / -1; display:flex; flex-wrap:wrap; gap:0.65rem; }
+.dashboard-next { grid-column: 1 / -1; margin: 0; }
+
+.trip-card--app { overflow: hidden; padding: 0; display: flex; flex-direction: column; }
+.trip-card__cover { min-height: 118px; padding: 1rem; display:flex; align-items:flex-start; justify-content:space-between; background: radial-gradient(circle at 20% 20%, rgba(255,255,255,.55), transparent 35%), linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 65%, #111827)); color: #fff; }
+.trip-card__cover span { font-size: 0.78rem; letter-spacing: .08em; text-transform: uppercase; opacity: .85; }
+.trip-card__cover strong { background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.25); padding: .35rem .55rem; border-radius: 999px; }
+.trip-card__body { padding: 1rem; display:flex; flex-direction:column; gap:.75rem; }
+.trip-progress { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.trip-progress span { display:block; height:100%; border-radius:inherit; background: var(--primary); }
+
+.wizard-form { max-width: min(1040px, 94vw); }
+.wizard-steps { display:grid; grid-template-columns: repeat(2, minmax(240px, 1fr)); gap: 1rem; }
+.wizard-step-card { position:relative; border:1px solid var(--border); border-radius:22px; padding:1rem; background: var(--surface); display:grid; gap:.7rem; }
+.wizard-number { width:32px; height:32px; display:grid; place-items:center; border-radius:50%; background:var(--primary); color:white; font-weight:800; }
+.wizard-step-card h3 { margin:.1rem 0; }
+
+.planner-quick-actions { display:flex; flex-wrap:wrap; gap:.35rem; margin:.55rem 0 .75rem; }
+.planner-quick-actions button { border:1px solid var(--border); background: var(--surface-2); color: var(--text); border-radius:999px; padding:.35rem .55rem; font:inherit; font-size:.78rem; cursor:pointer; }
+.planner-quick-actions button:hover { border-color: var(--primary); }
+.route-detail-tags { display:flex; flex-wrap:wrap; gap:.35rem; margin:.45rem 0; }
+.route-detail-tags span { background: var(--surface-2); border:1px solid var(--border); border-radius:999px; padding:.25rem .5rem; color: var(--muted); font-size:.8rem; }
+.route-editor--wide { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
+
+.mini-panel { border: 1px solid var(--border); background: var(--surface); border-radius: 22px; padding: 1rem; margin: 1rem 0; }
+.mini-panel__head { display:flex; align-items:center; justify-content:space-between; gap:.75rem; margin-bottom:.75rem; }
+.daily-budget-list { display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:.5rem; }
+.daily-budget-list div, .people-budget-grid article { border:1px solid var(--border); border-radius:16px; background:var(--surface-2); padding:.75rem; }
+.daily-budget-list div { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+.people-budget-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); gap:.65rem; }
+.people-budget-grid article { display:grid; gap:.25rem; }
+.people-budget-grid span { color: var(--muted); font-size:.88rem; }
+.people-budget-grid em { font-style: normal; font-weight: 700; }
+.positive { color: #16a34a; }
+.negative { color: #dc2626; }
+.split-people { display:flex; flex-wrap:wrap; gap:.5rem; margin-top:.4rem; }
+.chip-check { display:inline-flex; align-items:center; gap:.35rem; border:1px solid var(--border); border-radius:999px; padding:.45rem .65rem; background: var(--surface-2); cursor:pointer; }
+.field-label { display:block; color:var(--muted); font-size:.9rem; margin-bottom:.2rem; }
+
+body.is-readonly .sidebar__footer,
+body.is-readonly #newTripBtn,
+body.is-readonly #createFirstTripBtn,
+body.is-readonly #openWizardBtn,
+body.is-readonly #addStepBtn,
+body.is-readonly #addExpenseBtn,
+body.is-readonly #addChecklistBlockBtn,
+body.is-readonly #saveSettingsBtn,
+body.is-readonly .row-actions,
+body.is-readonly .checklist__add,
+body.is-readonly .icon-button.danger { opacity: .45; pointer-events: none; }
+body.is-readonly input:not(#shareLinkInput),
+body.is-readonly textarea,
+body.is-readonly select { pointer-events: none; }
+
+@media (max-width: 860px) {
+  .dashboard-current { grid-template-columns: 1fr; border-radius: 22px; }
+  .dashboard-current__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wizard-steps { grid-template-columns: 1fr; }
+  .trip-card__cover { min-height: 92px; }
+  .route-editor--wide { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 640px) {
+  .topbar { gap: .75rem; }
+  .topbar__actions { width: 100%; display:grid; grid-template-columns: 1fr auto; }
+  #tripSelector { grid-column: 1 / -1; width:100%; }
+  .dashboard-current__stats { grid-template-columns: 1fr 1fr; }
+  .planner-columns { scroll-snap-type: x mandatory; }
+  .planner-day { min-width: 86vw; scroll-snap-align: start; }
+  .map-layout { grid-template-columns: 1fr; }
+  .map-panel { order: 2; }
+  .map-card { min-height: 420px; }
+  .modal__content { width: 96vw; max-height: 92vh; overflow:auto; }
+}
