@@ -38,6 +38,7 @@
         order: Number.isFinite(Number(step.order)) ? Number(step.order) : index,
         name: step.name || `Étape ${index + 1}`,
         type: step.type || 'ville',
+        address: step.address || '',
         lat: step.lat === '' || step.lat == null ? '' : Number(step.lat),
         lng: step.lng === '' || step.lng == null ? '' : Number(step.lng),
         arrivalDate: step.arrivalDate || '',

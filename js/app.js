@@ -7,6 +7,7 @@
   const Itinerary = window.TravelItinerary;
   const Suggestions = window.TravelSuggestions;
   const MapView = window.TravelMap;
+  const Geocoder = window.TravelGeocoder;
   const CloudSync = window.TravelCloudSync;
 
   let state = Storage.load();
@@ -95,11 +96,34 @@
     on('saveSettingsBtn', 'click', saveSettings);
     on('deleteCloudDataBtn', 'click', deleteCloudData);
     bindCloudActions();
+    bindStepSearch();
     window.addEventListener('resize', () => MapView.invalidate());
     $$('[data-close-dialog]').forEach(button => button.addEventListener('click', () => {
       const dialog = document.getElementById(button.dataset.closeDialog);
       if (dialog?.open) dialog.close('cancel');
     }));
+  }
+
+
+  function bindStepSearch() {
+    if (!Geocoder?.attachStepSearch) return;
+    const form = $('#stepForm');
+    Geocoder.attachStepSearch({
+      input: $('#placeSearchInput'),
+      button: $('#placeSearchBtn'),
+      resultsContainer: $('#placeSearchResults'),
+      statusElement: $('#placeSearchStatus'),
+      onSelect: place => {
+        if (!form) return;
+        form.elements.name.value = place.name || form.elements.name.value;
+        form.elements.address.value = place.address || place.displayName || '';
+        form.elements.lat.value = Number(place.lat).toFixed(6);
+        form.elements.lng.value = Number(place.lng).toFixed(6);
+        if ([...form.elements.type.options].some(option => option.value === place.type)) {
+          form.elements.type.value = place.type;
+        }
+      }
+    });
   }
 
   function switchView(view) {
@@ -354,6 +378,7 @@
           <span class="badge">${U.escapeHtml(step.type)} · ${U.escapeHtml(step.priority)}</span>
           <h3>${U.escapeHtml(step.name)}</h3>
           <p>${U.formatDate(step.arrivalDate)} → ${U.formatDate(step.departureDate)} · ${U.isValidCoord(step) ? `${step.lat}, ${step.lng}` : 'coordonnées manquantes'}${step.cost ? ` · ${U.formatMoney(step.cost, trip.currency)}` : ''}</p>
+          ${step.address ? `<p>${U.escapeHtml(step.address)}</p>` : ''}
           ${step.notes ? `<p>${U.escapeHtml(step.notes)}</p>` : ''}
         </div>
         <div class="row-actions">
@@ -379,6 +404,11 @@
     form.elements.id.value = step?.id || '';
     form.elements.name.value = step?.name || '';
     form.elements.type.value = step?.type || 'ville';
+    form.elements.address.value = step?.address || '';
+    form.elements.placeSearch.value = '';
+    $('#placeSearchStatus').textContent = '';
+    $('#placeSearchResults').innerHTML = '';
+    $('#placeSearchResults').hidden = true;
     form.elements.lat.value = step?.lat ?? '';
     form.elements.lng.value = step?.lng ?? '';
     form.elements.arrivalDate.value = step?.arrivalDate || '';
@@ -407,6 +437,7 @@
       order: existing?.order ?? trip.steps.length,
       name: String(data.get('name') || 'Étape'),
       type: String(data.get('type') || 'ville'),
+      address: String(data.get('address') || ''),
       lat: data.get('lat') === '' ? '' : Number(data.get('lat')),
       lng: data.get('lng') === '' ? '' : Number(data.get('lng')),
       arrivalDate: String(data.get('arrivalDate') || ''),

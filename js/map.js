@@ -65,6 +65,7 @@
         <strong>${window.TravelUtils.escapeHtml(step.name)}</strong><br>
         ${window.TravelUtils.escapeHtml(step.type || 'étape')} · ${window.TravelUtils.escapeHtml(step.priority || '')}<br>
         ${step.arrivalDate ? window.TravelUtils.formatDate(step.arrivalDate) : ''}
+        ${step.address ? `<p>${window.TravelUtils.escapeHtml(step.address)}</p>` : ''}
         ${step.notes ? `<p>${window.TravelUtils.escapeHtml(step.notes)}</p>` : ''}
       `);
       marker.addTo(markersLayer);
@@ -112,7 +113,7 @@
     container.innerHTML = steps.map((step, index) => `
       <button class="map-step" data-focus-step="${step.id}">
         <strong>${index + 1}. ${window.TravelUtils.escapeHtml(step.name)}</strong>
-        <small>${window.TravelUtils.escapeHtml(step.type)} · ${window.TravelUtils.isValidCoord(step) ? `${step.lat}, ${step.lng}` : 'coordonnées manquantes'}</small>
+        <small>${window.TravelUtils.escapeHtml(step.type)} · ${window.TravelUtils.escapeHtml(step.address || (window.TravelUtils.isValidCoord(step) ? `${step.lat}, ${step.lng}` : 'coordonnées manquantes'))}</small>
       </button>
     `).join('');
     container.querySelectorAll('[data-focus-step]').forEach(button => {
