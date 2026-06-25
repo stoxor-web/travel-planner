@@ -17,12 +17,14 @@
   let appReady = false;
   let cloudLoading = true;
   let currentView = 'dashboard';
+  let readOnlyMode = false;
+  let currentShareId = '';
 
   const titles = {
     dashboard: 'Tableau de bord',
     trip: 'Créer ou modifier un voyage',
     map: 'Carte du voyage',
-    itinerary: 'Feuille de route',
+    itinerary: 'Planning',
     budget: 'Budget',
     suggestions: 'Suggestions',
     preparation: 'Préparation',
@@ -40,7 +42,9 @@
     applyTheme(state.settings.theme || 'light');
     renderAll();
     switchView(location.hash?.replace('#', '') || 'dashboard');
-    initCloudSync();
+    const shareId = new URLSearchParams(location.search).get('share');
+    if (shareId) initSharedMode(shareId);
+    else initCloudSync();
   }
 
   function populateStaticSelects() {
@@ -93,8 +97,10 @@
       if (element) element.addEventListener(event, handler);
     };
 
-    on('newTripBtn', 'click', createNewTrip);
-    on('createFirstTripBtn', 'click', createNewTrip);
+    on('newTripBtn', 'click', openTripWizard);
+    on('createFirstTripBtn', 'click', openTripWizard);
+    on('openWizardBtn', 'click', openTripWizard);
+    on('tripWizardForm', 'submit', saveTripWizard);
     on('loadDemoBtn', 'click', loadDemoTrip);
     on('tripSelector', 'change', event => {
       if (!requireCloudReady()) return;
@@ -122,6 +128,7 @@
     on('addChecklistBlockBtn', 'click', addChecklistBlock);
     on('saveSettingsBtn', 'click', saveSettings);
     on('deleteCloudDataBtn', 'click', deleteCloudData);
+    on('copyShareLinkBtn', 'click', copyShareLink);
     bindCloudActions();
     bindPlaceSearch();
     window.addEventListener('resize', () => MapView.invalidate());
@@ -169,6 +176,10 @@
   }
 
   function requireCloudReady() {
+    if (readOnlyMode) {
+      showStatus('Ce voyage est ouvert en lecture seule.');
+      return false;
+    }
     if (appReady && CloudSync?.getUser()) return true;
     switchView('dashboard');
     showStatus('Connecte-toi avec Google pour utiliser le planificateur.');
@@ -206,65 +217,79 @@
 
   function renderDashboard() {
     const grid = $('#tripsGrid');
+    const focus = $('#dashboardFocus');
     const user = CloudSync?.getUser();
 
     if (cloudLoading) {
-      grid.innerHTML = '<div class="empty-state">Chargement de Firebase…</div>';
+      if (focus) focus.innerHTML = '';
+      grid.innerHTML = '<div class="empty-state">Chargement…</div>';
       return;
     }
 
-    if (!user || !appReady) {
+    if (!readOnlyMode && (!user || !appReady)) {
+      if (focus) focus.innerHTML = '';
       grid.innerHTML = `
-        <div class="login-gate">
-          <div class="login-gate__icon">☁️</div>
-          <h2>Connexion Google requise</h2>
-          <p>Tes voyages sont maintenant stockés uniquement dans Firebase. Connecte-toi pour charger automatiquement tes données et synchroniser chaque modification.</p>
-          <button class="button button--primary" id="dashboardSignInBtn">Se connecter avec Google</button>
-          <small>Le site n’utilise plus de sauvegarde locale de voyages ni d’export JSON.</small>
+        <div class="login-gate login-gate--simple">
+          <div class="login-gate__icon">✈️</div>
+          <h2>Prépare tes voyages en ligne</h2>
+          <p>Connecte-toi avec Google pour retrouver tes itinéraires, budgets et carnets sur tous tes appareils.</p>
+          <button class="button button--primary button--large" id="dashboardSignInBtn">Continuer avec Google</button>
         </div>
       `;
       document.getElementById('dashboardSignInBtn')?.addEventListener('click', handleCloudSignIn);
       return;
     }
 
+    renderDashboardFocus(focus);
+
     if (!state.trips.length) {
-      grid.innerHTML = '<div class="empty-state">Aucun voyage dans Firebase pour ce compte. Crée ton premier itinéraire ou charge l’exemple.</div>';
+      grid.innerHTML = '<div class="empty-state">Aucun voyage pour le moment. Lance l’assistant pour créer ton premier planning.</div>';
       return;
     }
 
     grid.innerHTML = state.trips.map(trip => {
       const budget = Budget.computeBudget(trip);
+      const score = Suggestions.analyzeTrip(trip, state.settings).globalScore || 0;
+      const days = U.tripDuration(trip);
+      const cover = trip.area || trip.name || 'Voyage';
       return `
-        <article class="trip-card">
-          <div class="trip-card__top">
-            <div>
-              <span class="badge">${U.escapeHtml(trip.status)}</span>
-              <h3>${U.escapeHtml(trip.name)}</h3>
+        <article class="trip-card trip-card--app">
+          <div class="trip-card__cover">
+            <span>${U.escapeHtml(cover).slice(0, 32)}</span>
+            <strong>${score}% prêt</strong>
+          </div>
+          <div class="trip-card__body">
+            <div class="trip-card__top">
+              <div>
+                <span class="badge">${U.escapeHtml(trip.status)}</span>
+                <h3>${U.escapeHtml(trip.name)}</h3>
+              </div>
+              <span>${days} j</span>
             </div>
-            <span>${trip.steps.length} étape(s)</span>
-          </div>
-          <p>${U.escapeHtml(trip.description || 'Aucune description pour le moment.')}</p>
-          <div class="trip-card__meta">
-            <span>📅 ${U.formatDate(trip.startDate)} → ${U.formatDate(trip.endDate)}</span>
-            <span>🌍 ${U.escapeHtml(trip.area || 'zone non renseignée')}</span>
-            <span>💶 ${U.formatMoney(budget.total, trip.currency)}${trip.maxBudget ? ` / ${U.formatMoney(trip.maxBudget, trip.currency)}` : ''}</span>
-          </div>
-          <div class="trip-card__actions">
-            <button class="button button--primary" data-open-trip="${trip.id}">Modifier</button>
-            <button class="button" data-duplicate-trip="${trip.id}">Dupliquer</button>
-            <button class="button" data-delete-trip="${trip.id}">Supprimer</button>
+            <p>${U.escapeHtml(trip.description || 'Aucune description pour le moment.')}</p>
+            <div class="trip-card__meta">
+              <span>📅 ${U.formatDate(trip.startDate)} → ${U.formatDate(trip.endDate)}</span>
+              <span>📍 ${trip.steps.length} étape(s)</span>
+              <span>💶 ${U.formatMoney(budget.plannedTotal, trip.currency)}${trip.maxBudget ? ` / ${U.formatMoney(trip.maxBudget, trip.currency)}` : ''}</span>
+              <span>👥 ${Budget.travellerNames(trip).join(', ')}</span>
+            </div>
+            <div class="trip-progress"><span style="width:${score}%"></span></div>
+            <div class="trip-card__actions">
+              <button class="button button--primary" data-open-trip="${trip.id}">${readOnlyMode ? 'Voir' : 'Continuer'}</button>
+              ${readOnlyMode ? '' : `<button class="button" data-share-trip="${trip.id}">Partager</button><button class="button" data-duplicate-trip="${trip.id}">Dupliquer</button><button class="button" data-delete-trip="${trip.id}">Supprimer</button>`}
+            </div>
           </div>
         </article>
       `;
     }).join('');
     grid.querySelectorAll('[data-open-trip]').forEach(button => button.addEventListener('click', () => {
-      if (!requireCloudReady()) return;
       state.activeTripId = button.dataset.openTrip;
       state = Storage.save(state);
       renderAll();
-      scheduleCloudAutosave();
-      switchView('trip');
+      if (!readOnlyMode) scheduleCloudAutosave();
+      switchView('itinerary');
     }));
+    grid.querySelectorAll('[data-share-trip]').forEach(button => button.addEventListener('click', () => shareTrip(button.dataset.shareTrip)));
     grid.querySelectorAll('[data-duplicate-trip]').forEach(button => button.addEventListener('click', () => {
       if (!requireCloudReady()) return;
       state = Storage.duplicateTrip(state, button.dataset.duplicateTrip);
@@ -273,6 +298,41 @@
       showStatus('Voyage dupliqué et synchronisé.');
     }));
     grid.querySelectorAll('[data-delete-trip]').forEach(button => button.addEventListener('click', () => deleteTrip(button.dataset.deleteTrip)));
+  }
+
+  function renderDashboardFocus(container) {
+    if (!container) return;
+    const trip = activeTrip();
+    if (!trip) {
+      container.innerHTML = '';
+      return;
+    }
+    const budget = Budget.computeBudget(trip);
+    const analysis = Suggestions.analyzeTrip(trip, state.settings);
+    const segments = Itinerary.totals(trip, state.settings);
+    const nextStep = U.sortSteps(trip.steps || []).find(step => step.arrivalDate >= new Date().toISOString().slice(0, 10)) || U.sortSteps(trip.steps || [])[0];
+    container.innerHTML = `
+      <section class="dashboard-current">
+        <div>
+          <p class="eyebrow">Voyage actif</p>
+          <h2>${U.escapeHtml(trip.name)}</h2>
+          <p>${U.escapeHtml(trip.area || 'Destination à préciser')} · ${U.formatDate(trip.startDate)} → ${U.formatDate(trip.endDate)}</p>
+        </div>
+        <div class="dashboard-current__stats">
+          <article><strong>${analysis.globalScore}%</strong><span>préparation</span></article>
+          <article><strong>${trip.steps.length}</strong><span>étapes</span></article>
+          <article><strong>${U.formatDistance(segments.distance)}</strong><span>trajet</span></article>
+          <article><strong>${U.formatMoney(budget.plannedTotal, trip.currency)}</strong><span>budget prévu</span></article>
+        </div>
+        <div class="dashboard-current__actions">
+          <button class="button button--primary" data-go-view="itinerary">Ouvrir le planning</button>
+          <button class="button" data-go-view="map">Voir la carte</button>
+          <button class="button" data-go-view="budget">Budget</button>
+        </div>
+        ${nextStep ? `<p class="dashboard-next">Prochaine étape : <strong>${U.escapeHtml(nextStep.name)}</strong></p>` : ''}
+      </section>
+    `;
+    container.querySelectorAll('[data-go-view]').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.goView)));
   }
 
   function renderTripForm() {
@@ -285,6 +345,7 @@
     }
     const fields = ['name', 'description', 'area', 'startDate', 'endDate', 'travellers', 'maxBudget', 'currency', 'status', 'style', 'pace', 'interests'];
     fields.forEach(field => { if (form.elements[field]) form.elements[field].value = trip[field] ?? ''; });
+    if (form.elements.travellersNames) form.elements.travellersNames.value = Budget.travellerNames(trip).join(', ');
   }
 
   function saveTripForm(event) {
@@ -294,7 +355,8 @@
     if (!trip) trip = Storage.normalizeTrip({});
     const data = new FormData(event.currentTarget);
     ['name', 'description', 'area', 'startDate', 'endDate', 'currency', 'status', 'style', 'pace', 'interests'].forEach(key => { trip[key] = String(data.get(key) || ''); });
-    trip.travellers = Math.max(1, Number(data.get('travellers')) || 1);
+    trip.travellersNames = parseTravellerNames(data.get('travellersNames'));
+    trip.travellers = Math.max(1, trip.travellersNames.length || Number(data.get('travellers')) || 1);
     trip.maxBudget = Number(data.get('maxBudget')) || 0;
     trip.updatedAt = new Date().toISOString();
     state = Storage.upsertTrip(state, trip);
@@ -303,15 +365,64 @@
     showStatus('Voyage enregistré.');
   }
 
-  function createNewTrip() {
+  function parseTravellerNames(value) {
+    return String(value || '').split(',').map(name => name.trim()).filter(Boolean);
+  }
+
+  function openTripWizard() {
+    if (!requireCloudReady()) return;
+    const form = $('#tripWizardForm');
+    form?.reset();
+    $('#tripWizardDialog')?.showModal();
+  }
+
+  function saveTripWizard(event) {
+    event.preventDefault();
+    if (!requireCloudReady()) return;
+    const data = new FormData(event.currentTarget);
+    const names = parseTravellerNames(data.get('travellersNames'));
+    const trip = Storage.normalizeTrip({
+      name: String(data.get('name') || 'Nouveau voyage'),
+      area: String(data.get('area') || ''),
+      startDate: String(data.get('startDate') || ''),
+      endDate: String(data.get('endDate') || ''),
+      travellersNames: names,
+      travellers: Math.max(1, names.length || 1),
+      maxBudget: Number(data.get('maxBudget')) || 0,
+      currency: String(data.get('currency') || '€'),
+      status: 'brouillon',
+      style: String(data.get('style') || 'équilibré'),
+      pace: String(data.get('pace') || 'normal'),
+      interests: String(data.get('interests') || ''),
+      description: String(data.get('description') || ''),
+      steps: [String(data.get('startPlace') || '').trim(), String(data.get('endPlace') || '').trim()].filter(Boolean).map((name, index, arr) => ({
+        name,
+        type: index === 0 ? 'ville' : 'ville',
+        arrivalDate: index === 0 ? String(data.get('startDate') || '') : String(data.get('endDate') || ''),
+        departureDate: index === 0 ? String(data.get('startDate') || '') : String(data.get('endDate') || ''),
+        priority: 'indispensable',
+        color: index === 0 ? '#2563eb' : '#dc2626',
+        transportToNext: index < arr.length - 1 ? 'plane' : 'car'
+      }))
+    });
+    state = Storage.upsertTrip(state, trip);
+    $('#tripWizardDialog')?.close();
+    renderAll();
+    scheduleCloudAutosave();
+    switchView('itinerary');
+    showStatus('Voyage créé. Complète les lieux avec la recherche d’adresse.');
+  }
+
+  function createNewTrip(seed = {}) {
     if (!requireCloudReady()) return;
     const trip = Storage.normalizeTrip({
-      name: 'Nouveau voyage',
-      currency: '€',
+      name: seed.name || 'Nouveau voyage',
+      currency: seed.currency || '€',
       travellers: 1,
       status: 'brouillon',
       steps: [],
-      expenses: []
+      expenses: [],
+      ...seed
     });
     state = Storage.upsertTrip(state, trip);
     scheduleCloudAutosave();
@@ -328,6 +439,7 @@
       startDate: '2026-07-12',
       endDate: '2026-07-18',
       travellers: 2,
+      travellersNames: ['Lucas', 'Marie'],
       maxBudget: 1800,
       currency: '€',
       status: 'prévu',
@@ -399,7 +511,7 @@
     list.querySelectorAll('[data-move-step]').forEach(button => button.addEventListener('click', () => moveStep(button.dataset.stepId, button.dataset.moveStep)));
   }
 
-  function openStepDialog(stepId = null, defaultArrivalDate = '') {
+  function openStepDialog(stepId = null, defaultArrivalDate = '', defaultType = '') {
     const trip = activeTrip();
     if (!trip) return showStatus('Crée d’abord un voyage.');
     const form = $('#stepForm');
@@ -408,7 +520,7 @@
     $('#stepDialogTitle').textContent = step ? 'Modifier une étape' : 'Ajouter une étape';
     form.elements.id.value = step?.id || '';
     form.elements.name.value = step?.name || '';
-    form.elements.type.value = step?.type || 'ville';
+    form.elements.type.value = step?.type || defaultType || 'ville';
     form.elements.lat.value = step?.lat ?? '';
     form.elements.lng.value = step?.lng ?? '';
     if (form.elements.address) form.elements.address.value = step?.address || '';
@@ -450,6 +562,9 @@
       links: U.linksToArray(data.get('links')),
       notes: String(data.get('notes') || ''),
       transportToNext: existing?.transportToNext || 'car',
+      segmentDepartureTime: existing?.segmentDepartureTime || '',
+      segmentArrivalTime: existing?.segmentArrivalTime || '',
+      segmentReference: existing?.segmentReference || '',
       segmentCost: existing?.segmentCost || 0,
       segmentNote: existing?.segmentNote || '',
       journal: existing?.journal || { notes: '', photoLinks: '', rating: '', realExpenses: '', weather: '', afterthoughts: '' }
@@ -503,7 +618,7 @@
     Itinerary.renderSummary($('#itinerarySummary'), trip, state.settings);
     Itinerary.renderDayPlanner?.($('#dayPlannerBoard'), trip, state.settings, {
       editStep: stepId => openStepDialog(stepId),
-      addStep: date => openStepDialog(null, date)
+      addStep: (date, type) => openStepDialog(null, date, type)
     });
     Itinerary.renderItinerary($('#itineraryList'), trip, state.settings, (stepId, field, value) => {
       updateSegmentField(stepId, field, value);
@@ -513,9 +628,21 @@
   function renderBudget() {
     const trip = activeTrip();
     Budget.renderStats($('#budgetStats'), trip);
+    Budget.renderDaily?.($('#budgetDaily'), trip);
+    Budget.renderPeople?.($('#budgetPeople'), trip);
     Budget.renderBreakdown($('#budgetBreakdown'), trip);
     Budget.drawChart($('#budgetChart'), trip);
     Budget.renderExpenses($('#expensesList'), trip, { edit: openExpenseDialog, delete: deleteExpense });
+  }
+
+
+  function renderExpenseSplitPeople(people, selected = []) {
+    const box = $('#expenseSplitPeople');
+    if (!box) return;
+    const chosen = new Set(selected && selected.length ? selected : people);
+    box.innerHTML = people.map(name => `
+      <label class="chip-check"><input type="checkbox" value="${U.escapeHtml(name)}" ${chosen.has(name) ? 'checked' : ''} /> <span>${U.escapeHtml(name)}</span></label>
+    `).join('') || '<span class="muted">Ajoute des prénoms dans le voyage pour répartir les dépenses.</span>';
   }
 
   function openExpenseDialog(expenseId = null) {
@@ -524,13 +651,18 @@
     const form = $('#expenseForm');
     form.reset();
     form.elements.stepId.innerHTML = '<option value="">Aucune étape</option>' + U.sortSteps(trip.steps).map(step => `<option value="${step.id}">${U.escapeHtml(step.name)}</option>`).join('');
+    const people = Budget.travellerNames(trip);
+    form.elements.paidBy.innerHTML = '<option value="">Non renseigné</option>' + people.map(name => `<option value="${U.escapeHtml(name)}">${U.escapeHtml(name)}</option>`).join('');
     const expense = trip.expenses.find(item => item.id === expenseId);
+    renderExpenseSplitPeople(people, expense?.splitBetween || people);
     $('#expenseDialogTitle').textContent = expense ? 'Modifier une dépense' : 'Ajouter une dépense';
     form.elements.id.value = expense?.id || '';
     form.elements.label.value = expense?.label || '';
     form.elements.category.value = expense?.category || 'autres';
-    form.elements.amount.value = expense?.amount || '';
+    if (form.elements.plannedAmount) form.elements.plannedAmount.value = expense?.plannedAmount ?? expense?.amount ?? '';
+    if (form.elements.actualAmount) form.elements.actualAmount.value = expense?.actualAmount ?? '';
     form.elements.status.value = expense?.status || 'prévue';
+    form.elements.paidBy.value = expense?.paidBy || '';
     form.elements.date.value = expense?.date || '';
     form.elements.stepId.value = expense?.stepId || '';
     form.elements.note.value = expense?.note || '';
@@ -548,8 +680,12 @@
       id,
       label: String(data.get('label') || 'Dépense'),
       category: String(data.get('category') || 'autres'),
-      amount: Number(data.get('amount')) || 0,
+      amount: Number(data.get('plannedAmount') || data.get('actualAmount')) || 0,
+      plannedAmount: Number(data.get('plannedAmount')) || 0,
+      actualAmount: data.get('actualAmount') === '' ? '' : Number(data.get('actualAmount')) || 0,
       status: String(data.get('status') || 'prévue'),
+      paidBy: String(data.get('paidBy') || ''),
+      splitBetween: [...document.querySelectorAll('#expenseSplitPeople input:checked')].map(input => input.value),
       date: String(data.get('date') || ''),
       stepId: String(data.get('stepId') || ''),
       note: String(data.get('note') || '')
@@ -878,6 +1014,66 @@
   }
 
 
+
+  async function shareTrip(tripId) {
+    if (!requireCloudReady()) return;
+    const trip = state.trips.find(item => item.id === tripId);
+    if (!trip) return;
+    try {
+      const payload = await CloudSync.publishTripShare(trip);
+      trip.shareId = payload.shareId;
+      state = Storage.save(state);
+      scheduleCloudAutosave();
+      const url = `${location.origin}${location.pathname}?share=${encodeURIComponent(payload.shareId)}`;
+      $('#shareLinkInput').value = url;
+      $('#shareDialog').showModal();
+      showStatus('Lien de partage créé.');
+    } catch (error) {
+      console.error(error);
+      showStatus(error.message || 'Partage impossible.');
+    }
+  }
+
+  async function copyShareLink() {
+    const input = $('#shareLinkInput');
+    if (!input?.value) return;
+    try {
+      await navigator.clipboard.writeText(input.value);
+      showStatus('Lien copié.');
+    } catch {
+      input.select();
+      document.execCommand('copy');
+      showStatus('Lien copié.');
+    }
+  }
+
+  async function initSharedMode(shareId) {
+    readOnlyMode = true;
+    currentShareId = shareId;
+    cloudLoading = true;
+    renderAll();
+    try {
+      if (!CloudSync?.isConfigured()) throw new Error('Firebase n’est pas configuré.');
+      await CloudSync.init();
+      const shared = await CloudSync.loadPublicShare(shareId);
+      if (!shared?.trip) throw new Error('Voyage partagé introuvable.');
+      const trip = Storage.normalizeTrip(shared.trip);
+      state = Storage.normalizeState({ version: 1, activeTripId: trip.id, settings: state.settings, trips: [trip] });
+      appReady = true;
+      cloudLoading = false;
+      document.body.classList.add('is-readonly');
+      renderAll();
+      switchView('dashboard');
+      showStatus('Voyage ouvert en lecture seule.');
+    } catch (error) {
+      console.error(error);
+      appReady = false;
+      cloudLoading = false;
+      renderAll();
+      showStatus(error.message || 'Lecture du partage impossible.');
+    }
+  }
+
   function bindCloudActions() {
     if (!CloudSync) return;
     const bind = (id, handler) => {
@@ -981,14 +1177,15 @@
     const syncMeta = document.getElementById('cloudSyncMeta');
     const protectedControls = ['newTripBtn', 'createFirstTripBtn', 'loadDemoBtn', 'tripSelector', 'saveSettingsBtn'];
 
-    document.body.classList.toggle('is-cloud-locked', !appReady || !user);
+    document.body.classList.toggle('is-cloud-locked', !readOnlyMode && (!appReady || !user));
+    document.body.classList.toggle('is-readonly', readOnlyMode);
 
     if (statusEl) statusEl.textContent = status || (configured ? 'Connexion Google requise.' : 'Firebase non configuré.');
     if (profile) profile.hidden = !user;
     if (avatar && user) avatar.src = user.photoURL || '';
     if (name && user) name.textContent = user.displayName || 'Compte Google';
     if (email && user) email.textContent = user.email || '';
-    if (topButton) topButton.textContent = user ? '☁️ Connecté' : '☁️ Connexion Google';
+    if (topButton) topButton.textContent = readOnlyMode ? '👁️ Lecture seule' : (user ? '☁️ Connecté' : '☁️ Connexion Google');
     if (signInBtn) {
       signInBtn.disabled = !configured || Boolean(user);
       signInBtn.textContent = user ? 'Connecté avec Google' : 'Se connecter avec Google';
@@ -999,7 +1196,7 @@
 
     protectedControls.forEach(id => {
       const element = document.getElementById(id);
-      if (element) element.disabled = !appReady || !user;
+      if (element) element.disabled = readOnlyMode || !appReady || !user;
     });
   }
 

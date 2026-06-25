@@ -28,6 +28,9 @@
         ...estimation,
         cost: Number(from.segmentCost) || estimation.cost,
         note: from.segmentNote || '',
+        departureTime: from.segmentDepartureTime || '',
+        arrivalTime: from.segmentArrivalTime || '',
+        reference: from.segmentReference || '',
         hasCoordinates: isValidCoord(from) && isValidCoord(to)
       };
     });
@@ -178,6 +181,9 @@
               </div>
               ${day.date ? `<button class="icon-button" title="Ajouter une étape ce jour" data-planner-add="${day.date}">+</button>` : ''}
             </div>
+            <div class="planner-quick-actions">
+              ${day.date ? ['ville','hôtel','restaurant','activité','gare','aéroport'].map(type => `<button type="button" data-planner-quick="${day.date}|${type}">+ ${type}</button>`).join('') : ''}
+            </div>
             <div class="planner-day__body">
               ${day.steps.length ? day.steps.map((step, index) => `
                 <button class="planner-step" type="button" data-planner-edit="${step.id}">
@@ -210,6 +216,12 @@
     container.querySelectorAll('[data-planner-add]').forEach(button => {
       button.addEventListener('click', () => actions.addStep?.(button.dataset.plannerAdd));
     });
+    container.querySelectorAll('[data-planner-quick]').forEach(button => {
+      button.addEventListener('click', () => {
+        const [date, type] = button.dataset.plannerQuick.split('|');
+        actions.addStep?.(date, type);
+      });
+    });
   }
 
   function renderItinerary(container, trip, settings, onChangeSegment) {
@@ -227,6 +239,11 @@
         <p class="eyebrow">${segment.dayLabel}</p>
         <h3>${escapeHtml(segment.from.name)} → ${escapeHtml(segment.to.name)}</h3>
         <p>${segment.modeIcon} ${segment.modeLabel} · ${segment.hasCoordinates ? `${formatDistance(segment.distance)} · ${formatDuration(segment.duration)}` : 'coordonnées à compléter'} · ${formatMoney(segment.cost, trip.currency)}</p>
+        <div class="route-detail-tags">
+          ${segment.departureTime ? `<span>Départ ${escapeHtml(segment.departureTime)}</span>` : ''}
+          ${segment.arrivalTime ? `<span>Arrivée ${escapeHtml(segment.arrivalTime)}</span>` : ''}
+          ${segment.reference ? `<span>Réf. ${escapeHtml(segment.reference)}</span>` : ''}
+        </div>
         ${segment.note ? `<p><strong>Note :</strong> ${escapeHtml(segment.note)}</p>` : ''}
         <div class="form-grid mt">
           <label>Transport
@@ -236,6 +253,15 @@
           </label>
           <label>Coût personnalisé
             <input class="input" type="number" min="0" step="0.01" value="${Number(segment.from.segmentCost) || ''}" data-segment-field="segmentCost" data-step-id="${segment.from.id}" placeholder="${segment.cost.toFixed(2)}" />
+          </label>
+          <label>Heure départ
+            <input class="input" type="time" value="${escapeHtml(segment.from.segmentDepartureTime || '')}" data-segment-field="segmentDepartureTime" data-step-id="${segment.from.id}" />
+          </label>
+          <label>Heure arrivée
+            <input class="input" type="time" value="${escapeHtml(segment.from.segmentArrivalTime || '')}" data-segment-field="segmentArrivalTime" data-step-id="${segment.from.id}" />
+          </label>
+          <label>Réservation / vol / train
+            <input class="input" value="${escapeHtml(segment.from.segmentReference || '')}" data-segment-field="segmentReference" data-step-id="${segment.from.id}" placeholder="AF123, TGV 6120..." />
           </label>
           <label class="wide">Note de segment
             <input class="input" value="${escapeHtml(segment.from.segmentNote || '')}" data-segment-field="segmentNote" data-step-id="${segment.from.id}" placeholder="Pause, billet, péage, marge aéroport..." />

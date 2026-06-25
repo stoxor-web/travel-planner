@@ -1,32 +1,94 @@
 (function () {
   'use strict';
 
-  const { expenseCategories, formatMoney, tripDuration, toNumber } = window.TravelUtils;
+  const { expenseCategories, formatMoney, tripDuration, toNumber, escapeHtml, formatDate } = window.TravelUtils;
+
+  function travellerNames(trip) {
+    const names = Array.isArray(trip?.travellersNames) ? trip.travellersNames.filter(Boolean) : [];
+    if (names.length) return names;
+    const count = Math.max(1, toNumber(trip?.travellers, 1));
+    return Array.from({ length: count }, (_, index) => `Voyageur ${index + 1}`);
+  }
+
+  function expensePlanned(expense) {
+    return toNumber(expense?.plannedAmount ?? expense?.amount);
+  }
+
+  function expenseActual(expense) {
+    if (expense?.actualAmount === '' || expense?.actualAmount == null) return 0;
+    return toNumber(expense.actualAmount);
+  }
+
+  function expenseEffective(expense) {
+    const actual = expenseActual(expense);
+    return actual > 0 ? actual : expensePlanned(expense);
+  }
+
+  function dayKeyForExpense(expense, stepsById) {
+    if (expense.date) return expense.date;
+    const step = stepsById.get(expense.stepId || '');
+    return step?.arrivalDate || 'non daté';
+  }
 
   function computeBudget(trip) {
     const expenses = trip?.expenses || [];
-    const totalExpenses = expenses.reduce((sum, expense) => sum + toNumber(expense.amount), 0);
-    const stepsCost = (trip?.steps || []).reduce((sum, step) => sum + toNumber(step.cost), 0);
-    const total = totalExpenses + stepsCost;
+    const steps = trip?.steps || [];
+    const stepsCost = steps.reduce((sum, step) => sum + toNumber(step.cost), 0);
+    const plannedExpenses = expenses.reduce((sum, expense) => sum + expensePlanned(expense), 0);
+    const actualExpenses = expenses.reduce((sum, expense) => sum + expenseActual(expense), 0);
+    const total = plannedExpenses + stepsCost;
+    const actualTotal = actualExpenses + steps.reduce((sum, step) => sum + toNumber(step.journal?.realExpenses), 0);
     const max = toNumber(trip?.maxBudget);
     const days = tripDuration(trip);
-    const travellers = Math.max(1, toNumber(trip?.travellers, 1));
+    const names = travellerNames(trip);
+    const travellers = Math.max(1, names.length);
     const byCategory = Object.fromEntries(expenseCategories.map(category => [category, 0]));
+    const byStatus = {};
+    const stepsById = new Map(steps.map(step => [step.id, step]));
+    const byDay = {};
     expenses.forEach(expense => {
       const category = expense.category || 'autres';
-      byCategory[category] = (byCategory[category] || 0) + toNumber(expense.amount);
+      const value = expenseEffective(expense);
+      byCategory[category] = (byCategory[category] || 0) + value;
+      byStatus[expense.status || 'prévue'] = (byStatus[expense.status || 'prévue'] || 0) + value;
+      const key = dayKeyForExpense(expense, stepsById);
+      byDay[key] = (byDay[key] || 0) + value;
+    });
+    steps.forEach(step => {
+      const key = step.arrivalDate || 'non daté';
+      byDay[key] = (byDay[key] || 0) + toNumber(step.cost);
     });
     if (stepsCost) byCategory.activités = (byCategory.activités || 0) + stepsCost;
+
+    const balances = Object.fromEntries(names.map(name => [name, { paid: 0, share: 0, balance: 0 }]));
+    expenses.forEach(expense => {
+      const amount = expenseEffective(expense);
+      const participants = Array.isArray(expense.splitBetween) && expense.splitBetween.length ? expense.splitBetween : names;
+      const validParticipants = participants.filter(name => balances[name]);
+      const share = validParticipants.length ? amount / validParticipants.length : amount / travellers;
+      validParticipants.forEach(name => { balances[name].share += share; });
+      if (balances[expense.paidBy]) balances[expense.paidBy].paid += amount;
+    });
+    Object.values(balances).forEach(row => { row.balance = row.paid - row.share; });
+
     return {
       total,
-      totalExpenses,
+      plannedTotal: total,
+      actualTotal,
+      totalExpenses: plannedExpenses,
       stepsCost,
       max,
       remaining: max ? max - total : 0,
       percent: max ? Math.round((total / max) * 100) : 0,
       perDay: total / Math.max(1, days),
+      actualPerDay: actualTotal / Math.max(1, days),
       perPerson: total / travellers,
+      actualPerPerson: actualTotal / travellers,
       byCategory,
+      byStatus,
+      byDay,
+      balances,
+      names,
       days,
       travellers
     };
@@ -36,10 +98,52 @@
     const budget = computeBudget(trip);
     const currency = trip?.currency || '€';
     container.innerHTML = `
-      <div class="stat-card"><strong>${formatMoney(budget.total, currency)}</strong><span>budget total</span></div>
-      <div class="stat-card"><strong>${formatMoney(budget.perDay, currency)}</strong><span>par jour</span></div>
-      <div class="stat-card"><strong>${formatMoney(budget.perPerson, currency)}</strong><span>par personne</span></div>
+      <div class="stat-card"><strong>${formatMoney(budget.plannedTotal, currency)}</strong><span>prévu</span></div>
+      <div class="stat-card"><strong>${formatMoney(budget.actualTotal, currency)}</strong><span>réel renseigné</span></div>
+      <div class="stat-card"><strong>${formatMoney(budget.perDay, currency)}</strong><span>prévu par jour</span></div>
+      <div class="stat-card"><strong>${formatMoney(budget.perPerson, currency)}</strong><span>prévu par personne</span></div>
       <div class="stat-card"><strong>${budget.max ? `${budget.percent}%` : '—'}</strong><span>${budget.max ? (budget.remaining >= 0 ? `reste ${formatMoney(budget.remaining, currency)}` : `dépassement ${formatMoney(Math.abs(budget.remaining), currency)}`) : 'aucun plafond'}</span></div>
+    `;
+  }
+
+  function renderDaily(container, trip) {
+    if (!container) return;
+    const budget = computeBudget(trip);
+    const currency = trip?.currency || '€';
+    const rows = Object.entries(budget.byDay).filter(([, amount]) => amount > 0).sort(([a], [b]) => a.localeCompare(b)).slice(0, 14);
+    if (!rows.length) {
+      container.innerHTML = '';
+      return;
+    }
+    container.innerHTML = `
+      <div class="mini-panel">
+        <div class="mini-panel__head"><strong>Budget par jour</strong><span>${formatMoney(budget.perDay, currency)} / jour</span></div>
+        <div class="daily-budget-list">
+          ${rows.map(([day, amount]) => `<div><span>${day === 'non daté' ? 'Non daté' : formatDate(day)}</span><strong>${formatMoney(amount, currency)}</strong></div>`).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderPeople(container, trip) {
+    if (!container) return;
+    const budget = computeBudget(trip);
+    const currency = trip?.currency || '€';
+    container.innerHTML = `
+      <div class="mini-panel">
+        <div class="mini-panel__head"><strong>Répartition voyageurs</strong><span>${budget.names.length} personne(s)</span></div>
+        <div class="people-budget-grid">
+          ${budget.names.map(name => {
+            const row = budget.balances[name] || { paid: 0, share: budget.perPerson, balance: 0 };
+            return `<article>
+              <strong>${escapeHtml(name)}</strong>
+              <span>Part estimée : ${formatMoney(row.share || budget.perPerson, currency)}</span>
+              <span>Payé : ${formatMoney(row.paid || 0, currency)}</span>
+              <em class="${row.balance >= 0 ? 'positive' : 'negative'}">${row.balance >= 0 ? 'À recevoir' : 'À verser'} : ${formatMoney(Math.abs(row.balance || 0), currency)}</em>
+            </article>`;
+          }).join('')}
+        </div>
+      </div>
     `;
   }
 
@@ -119,29 +223,35 @@
   function renderExpenses(container, trip, handlers) {
     const expenses = trip?.expenses || [];
     if (!expenses.length) {
-      container.innerHTML = '<div class="empty-state">Ajoute tes dépenses prévues, payées, partagées ou à rembourser.</div>';
+      container.innerHTML = '<div class="empty-state">Ajoute tes dépenses prévues, réelles, partagées ou à rembourser.</div>';
       return;
     }
     const stepsById = new Map((trip.steps || []).map(step => [step.id, step.name]));
-    container.innerHTML = expenses.map(expense => `
-      <article class="expense-row">
-        <div class="trip-card__top">
-          <div>
-            <span class="badge">${window.TravelUtils.escapeHtml(expense.category)}</span>
-            <h3>${window.TravelUtils.escapeHtml(expense.label)}</h3>
-            <p>${formatMoney(expense.amount, trip.currency)} · ${window.TravelUtils.escapeHtml(expense.status)}${expense.date ? ` · ${window.TravelUtils.formatDate(expense.date)}` : ''}${expense.stepId ? ` · ${window.TravelUtils.escapeHtml(stepsById.get(expense.stepId) || 'étape')}` : ''}</p>
-            ${expense.note ? `<p>${window.TravelUtils.escapeHtml(expense.note)}</p>` : ''}
+    const currency = trip.currency || '€';
+    container.innerHTML = expenses.map(expense => {
+      const planned = expensePlanned(expense);
+      const actual = expenseActual(expense);
+      return `
+        <article class="expense-row">
+          <div class="trip-card__top">
+            <div>
+              <span class="badge">${escapeHtml(expense.category)}</span>
+              <h3>${escapeHtml(expense.label)}</h3>
+              <p>Prévu : ${formatMoney(planned, currency)} · Réel : ${actual ? formatMoney(actual, currency) : '—'} · ${escapeHtml(expense.status)}${expense.date ? ` · ${formatDate(expense.date)}` : ''}${expense.stepId ? ` · ${escapeHtml(stepsById.get(expense.stepId) || 'étape')}` : ''}</p>
+              ${expense.paidBy ? `<p>Payé par ${escapeHtml(expense.paidBy)}${expense.splitBetween?.length ? ` · partagé avec ${expense.splitBetween.map(escapeHtml).join(', ')}` : ''}</p>` : ''}
+              ${expense.note ? `<p>${escapeHtml(expense.note)}</p>` : ''}
+            </div>
+            <div class="row-actions">
+              <button class="button" data-edit-expense="${expense.id}">Modifier</button>
+              <button class="button" data-delete-expense="${expense.id}">Supprimer</button>
+            </div>
           </div>
-          <div class="row-actions">
-            <button class="button" data-edit-expense="${expense.id}">Modifier</button>
-            <button class="button" data-delete-expense="${expense.id}">Supprimer</button>
-          </div>
-        </div>
-      </article>
-    `).join('');
+        </article>
+      `;
+    }).join('');
     container.querySelectorAll('[data-edit-expense]').forEach(btn => btn.addEventListener('click', () => handlers?.edit?.(btn.dataset.editExpense)));
     container.querySelectorAll('[data-delete-expense]').forEach(btn => btn.addEventListener('click', () => handlers?.delete?.(btn.dataset.deleteExpense)));
   }
 
-  window.TravelBudget = { computeBudget, renderStats, renderBreakdown, drawChart, renderExpenses };
+  window.TravelBudget = { computeBudget, renderStats, renderDaily, renderPeople, renderBreakdown, drawChart, renderExpenses, travellerNames };
 })();

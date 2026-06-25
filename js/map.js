@@ -529,7 +529,12 @@
                 <span>${duration}</span>
                 <span>${cost}</span>
               </div>
-              <div class="route-editor">
+              <div class="route-detail-tags">
+                ${segment.departureTime ? `<span>Départ ${escape(segment.departureTime)}</span>` : ''}
+                ${segment.arrivalTime ? `<span>Arrivée ${escape(segment.arrivalTime)}</span>` : ''}
+                ${segment.reference ? `<span>Réf. ${escape(segment.reference)}</span>` : ''}
+              </div>
+              <div class="route-editor route-editor--wide">
                 <label>Transport
                   <select class="input" data-map-route-mode="${escape(segment.from.id)}" aria-label="Mode de transport">
                     ${modeOptions}
@@ -538,7 +543,14 @@
                 <label>Coût
                   <input class="input" type="number" min="0" step="0.01" value="${Number(segment.from.segmentCost) || ''}" data-map-route-cost="${escape(segment.from.id)}" placeholder="auto">
                 </label>
+                <label>Départ
+                  <input class="input" type="time" value="${escape(segment.from.segmentDepartureTime || '')}" data-map-route-departure="${escape(segment.from.id)}">
+                </label>
+                <label>Arrivée
+                  <input class="input" type="time" value="${escape(segment.from.segmentArrivalTime || '')}" data-map-route-arrival="${escape(segment.from.id)}">
+                </label>
               </div>
+              <input class="input route-note" value="${escape(segment.from.segmentReference || '')}" data-map-route-reference="${escape(segment.from.id)}" placeholder="Vol, train, réservation…">
               <input class="input route-note" value="${escape(segment.from.segmentNote || '')}" data-map-route-note="${escape(segment.from.id)}" placeholder="Note du trajet : terminal, parking, billet, location voiture…">
               <div class="route-actions">
                 <button type="button" class="button button--tiny" data-map-route-focus="${segment.index}">Voir sur la carte</button>
@@ -560,6 +572,15 @@
       input.addEventListener('change', event => onChangeSegment?.(event.target.dataset.mapRouteCost, 'segmentCost', event.target.value));
     });
 
+    container.querySelectorAll('[data-map-route-departure]').forEach(input => {
+      input.addEventListener('change', event => onChangeSegment?.(event.target.dataset.mapRouteDeparture, 'segmentDepartureTime', event.target.value));
+    });
+    container.querySelectorAll('[data-map-route-arrival]').forEach(input => {
+      input.addEventListener('change', event => onChangeSegment?.(event.target.dataset.mapRouteArrival, 'segmentArrivalTime', event.target.value));
+    });
+    container.querySelectorAll('[data-map-route-reference]').forEach(input => {
+      input.addEventListener('change', event => onChangeSegment?.(event.target.dataset.mapRouteReference, 'segmentReference', event.target.value));
+    });
     container.querySelectorAll('[data-map-route-note]').forEach(input => {
       input.addEventListener('change', event => onChangeSegment?.(event.target.dataset.mapRouteNote, 'segmentNote', event.target.value));
     });
