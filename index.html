@@ -54,16 +54,18 @@
       <section id="statusBanner" class="status-banner" hidden></section>
 
       <section class="view is-visible" id="view-dashboard" aria-labelledby="pageTitle">
-        <div class="hero-card">
+        <div class="hero-card hero-card--tripkygo">
           <div>
-            <p class="eyebrow">Vue d’ensemble</p>
-            <h2>Mes voyages</h2>
-            <p>Crée et retrouve tes itinéraires en quelques secondes.</p>
+            <p class="eyebrow">Planificateur visuel</p>
+            <h2>Construis ton voyage jour par jour</h2>
+            <p>Itinéraire, carte, budget et carnet restent synchronisés dans ton compte Google.</p>
           </div>
           <div class="hero-card__actions">
             <button class="button button--primary" id="createFirstTripBtn">Créer un voyage</button>
           </div>
         </div>
+
+        <div id="dashboardFocus" class="dashboard-focus"></div>
 
         <div class="section-title">
           <div>
@@ -175,6 +177,13 @@
             <button class="button" id="refreshItineraryBtn">Recalculer</button>
           </div>
           <div id="itinerarySummary" class="stats-grid"></div>
+          <div id="dayPlannerBoard" class="day-planner"></div>
+          <div class="section-title section-title--compact">
+            <div>
+              <p class="eyebrow">Détail</p>
+              <h2>Trajets entre les étapes</h2>
+            </div>
+          </div>
           <div id="itineraryList" class="timeline"></div>
         </div>
       </section>
@@ -323,10 +332,20 @@
       <div class="wide place-search-block">
         <label>Rechercher un lieu
           <div class="place-search-row">
-            <input class="input" id="placeSearchInput" name="placeSearch" autocomplete="off" placeholder="Ville, hôtel, adresse, monument..." />
+            <input class="input" id="placeSearchInput" name="placeSearch" autocomplete="off" placeholder="Ex. Hôtel Regina, Paris, France" />
             <button type="button" class="button" id="placeSearchBtn">Rechercher</button>
           </div>
         </label>
+        <div class="place-category-row" aria-label="Filtrer la recherche">
+          <button type="button" class="place-chip is-active" data-place-category="">Tout</button>
+          <button type="button" class="place-chip" data-place-category="ville">Ville</button>
+          <button type="button" class="place-chip" data-place-category="hôtel">Hôtel</button>
+          <button type="button" class="place-chip" data-place-category="restaurant">Restaurant</button>
+          <button type="button" class="place-chip" data-place-category="gare">Gare</button>
+          <button type="button" class="place-chip" data-place-category="aéroport">Aéroport</button>
+          <button type="button" class="place-chip" data-place-category="activité">Activité</button>
+        </div>
+        <p class="place-search-help">Conseil : plus la recherche est précise, meilleur est le résultat. Exemple : “nom, ville, pays”.</p>
         <div id="placeSearchStatus" class="place-search-status" aria-live="polite"></div>
         <div id="placeSearchResults" class="place-results" hidden></div>
       </div>
