@@ -1,41 +1,58 @@
 # Travel Planner — Lucas S. Edition
 
-Application web personnelle de planification de voyages, hébergée sur GitHub Pages et synchronisée avec Firebase via connexion Google.
+Version V4.3 — réparation visuelle stable.
 
-## Nouveautés V4.2
+Cette version remet le site dans un état propre et complet après les derniers correctifs partiels. Elle contient tous les fichiers nécessaires au fonctionnement normal sur GitHub Pages avec Firebase.
 
-- Bouton de connexion Google retravaillé avec avatar, état clair et rendu plus professionnel.
-- Identité visuelle plus marquée : signature Lucas S., dégradés propriétaires, cartes plus premium et finitions mobile.
-- Carte OSM stable sans Leaflet : tuiles OpenStreetMap placées directement par le site, avec déplacement, zoom, recentrage, marqueurs, lignes de trajet et sélection des segments.
-- Cartes de voyage enrichies : score, budget, voyageurs, dates, étapes et accès rapide.
-- Résumé de consultation rapide pour le voyage actif.
-- Bouton flottant `+` pour ajouter voyage, étape, dépense ou ouvrir la préparation.
-- Assistant de cohérence amélioré : oublis, budget, hôtels, aéroports, dates, coordonnées, style de voyage.
-- Suggestions adaptées au style : économique, confort, aventure, équilibré.
-- Modèles de voyage : city break, roadtrip, avion, amis, aventure.
-- Planning façon timeline, avec ajout rapide par journée et déplacement d’étapes par glisser-déposer.
-- Budget amélioré avec alertes, prévu/réel, budget par jour, budget par personne et équilibrage type TriCount.
-- Partage lecture seule amélioré avec options de confidentialité.
-- Collaboration privée via lien réservé à des comptes Google autorisés.
-- Mode hors ligne léger : affichage du dernier état connu si Firebase est momentanément inaccessible.
-- Recherche globale : voyage, étape, note, dépense.
-- Sauvegarde automatique immédiate après modification + sauvegarde périodique configurable.
-- Footer avec mentions légales et signature “Créé par Lucas S.”.
+## Corrections principales
 
-## Publication
+- Archive complète, pas un patch partiel.
+- Retour du fichier indispensable `js/utils.js`.
+- Carte OSM maison stable, sans Leaflet.
+- Favicon ajouté pour l’onglet du navigateur.
+- Icône d’application ajoutée pour mobile.
+- Logo officiel ajouté dans les assets.
+- Correction du rectangle blanc sous la recherche.
+- Masquage forcé des éléments `hidden`.
+- Topbar et bouton Google plus propres.
+- Aucun fichier `firebase-config.example`.
 
-1. Remplacer les fichiers du dépôt GitHub Pages par ceux de l’archive.
-2. Conserver `js/firebase-config.js` avec la configuration Firebase réelle.
-3. Copier le contenu de `firestore.rules` dans Firebase Console → Firestore Database → Rules.
-4. Publier sur GitHub Pages.
+## Fichiers importants
 
-## Firebase
+```text
+index.html
+css/style.css
+js/app.js
+js/utils.js
+js/map.js
+js/firebase-config.js
+js/firebase-sync.js
+firestore.rules
+assets/icons/favicon.ico
+assets/icons/favicon-32.png
+assets/icons/apple-touch-icon.png
+assets/icons/icon-192.png
+assets/icons/icon-512.png
+assets/images/travel-planner-logo.png
+```
 
-Le site utilise :
+## Mise en ligne
 
-- Firebase Authentication avec Google ;
-- Cloud Firestore pour les voyages privés ;
-- `publicTrips` pour les liens en lecture seule ;
-- `sharedTrips` pour la collaboration privée.
+1. Supprimer les anciens fichiers du dépôt GitHub `travel-planner`, sauf si tu veux conserver l’historique Git.
+2. Déposer tout le contenu de cette archive.
+3. Vérifier que `js/firebase-config.js` est bien présent.
+4. Copier `firestore.rules` dans Firebase si les règles ont changé.
+5. Attendre le déploiement GitHub Pages.
+6. Ouvrir le site en navigation privée pour vérifier que l’ancien cache ne gêne pas.
 
-Aucun fichier `firebase-config.example` n’est utilisé dans le projet.
+## Test rapide
+
+- Le logo doit apparaître dans la barre latérale.
+- L’icône doit apparaître dans l’onglet du navigateur.
+- La barre de recherche ne doit plus afficher de rectangle vide.
+- La carte doit afficher des tuiles OSM correctement alignées.
+- La navigation doit fonctionner après connexion Google.
+
+## Remarque
+
+La carte n’utilise plus Leaflet. Elle est rendue directement par le code du site afin d’éviter les bugs de tuiles décalées ou de CSS Leaflet manquant.
