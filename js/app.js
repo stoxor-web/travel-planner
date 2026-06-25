@@ -219,7 +219,10 @@
 
   function renderDashboard() {
     const grid = $('#tripsGrid');
+    const focus = $('#dashboardFocus');
     const user = CloudSync?.getUser();
+
+    if (focus) focus.innerHTML = '';
 
     if (cloudLoading) {
       grid.innerHTML = '<div class="empty-state">Chargement…</div>';
@@ -228,11 +231,11 @@
 
     if (!user || !appReady) {
       grid.innerHTML = `
-        <div class="login-gate">
-          <div class="login-gate__icon">☁️</div>
-          <h2>Connecte-toi pour commencer</h2>
-          <p>Retrouve tes voyages et sauvegarde automatiquement tes modifications.</p>
-          <button class="button button--primary" id="dashboardSignInBtn">Continuer avec Google</button>
+        <div class="login-gate login-gate--simple">
+          <div class="login-gate__icon">✈️</div>
+          <h2>Connecte-toi pour organiser tes voyages</h2>
+          <p>Un compte Google suffit. Tes itinéraires se chargent automatiquement sur tous tes appareils.</p>
+          <button class="button button--primary button--large" id="dashboardSignInBtn">Continuer avec Google</button>
         </div>
       `;
       document.getElementById('dashboardSignInBtn')?.addEventListener('click', handleCloudSignIn);
@@ -244,10 +247,39 @@
       return;
     }
 
+    const active = activeTrip() || state.trips[0];
+    if (focus && active) {
+      const budget = Budget.computeBudget(active);
+      const itineraryTotals = Itinerary.totals(active, state.settings);
+      const days = U.tripDuration(active);
+      focus.innerHTML = `
+        <article class="focus-trip-card">
+          <div class="focus-trip-card__main">
+            <span class="badge">${U.escapeHtml(active.status || 'brouillon')}</span>
+            <h2>${U.escapeHtml(active.name)}</h2>
+            <p>${U.escapeHtml(active.area || 'Zone à préciser')} · ${U.formatDate(active.startDate)} → ${U.formatDate(active.endDate)}</p>
+          </div>
+          <div class="focus-trip-card__stats">
+            <div><strong>${days}</strong><span>jour(s)</span></div>
+            <div><strong>${active.steps.length}</strong><span>étape(s)</span></div>
+            <div><strong>${U.formatDistance(itineraryTotals.distance)}</strong><span>distance</span></div>
+            <div><strong>${U.formatMoney(budget.total, active.currency)}</strong><span>budget</span></div>
+          </div>
+          <div class="focus-trip-card__actions">
+            <button class="button button--primary" data-focus-view="itinerary">Planning</button>
+            <button class="button" data-focus-view="map">Carte</button>
+            <button class="button" data-focus-view="budget">Budget</button>
+          </div>
+        </article>
+      `;
+      focus.querySelectorAll('[data-focus-view]').forEach(button => button.addEventListener('click', () => switchView(button.dataset.focusView)));
+    }
+
     grid.innerHTML = state.trips.map(trip => {
       const budget = Budget.computeBudget(trip);
+      const totals = Itinerary.totals(trip, state.settings);
       return `
-        <article class="trip-card">
+        <article class="trip-card trip-card--compact">
           <div class="trip-card__top">
             <div>
               <span class="badge">${U.escapeHtml(trip.status)}</span>
@@ -255,14 +287,14 @@
             </div>
             <span>${trip.steps.length} étape(s)</span>
           </div>
-          <p>${U.escapeHtml(trip.description || 'Aucune description pour le moment.')}</p>
+          <p>${U.escapeHtml(trip.description || trip.area || 'Itinéraire à compléter.')}</p>
           <div class="trip-card__meta">
             <span>📅 ${U.formatDate(trip.startDate)} → ${U.formatDate(trip.endDate)}</span>
-            <span>🌍 ${U.escapeHtml(trip.area || 'zone non renseignée')}</span>
+            <span>🗺️ ${U.formatDistance(totals.distance)}</span>
             <span>💶 ${U.formatMoney(budget.total, trip.currency)}${trip.maxBudget ? ` / ${U.formatMoney(trip.maxBudget, trip.currency)}` : ''}</span>
           </div>
           <div class="trip-card__actions">
-            <button class="button button--primary" data-open-trip="${trip.id}">Modifier</button>
+            <button class="button button--primary" data-open-trip="${trip.id}">Ouvrir</button>
             <button class="button" data-duplicate-trip="${trip.id}">Dupliquer</button>
             <button class="button" data-delete-trip="${trip.id}">Supprimer</button>
           </div>
@@ -275,7 +307,7 @@
       state = Storage.save(state);
       renderAll();
       scheduleCloudAutosave();
-      switchView('trip');
+      switchView('itinerary');
     }));
     grid.querySelectorAll('[data-duplicate-trip]').forEach(button => button.addEventListener('click', () => {
       if (!requireCloudReady()) return;
@@ -412,7 +444,7 @@
     list.querySelectorAll('[data-move-step]').forEach(button => button.addEventListener('click', () => moveStep(button.dataset.stepId, button.dataset.moveStep)));
   }
 
-  function openStepDialog(stepId = null) {
+  function openStepDialog(stepId = null, defaults = {}) {
     const trip = activeTrip();
     if (!trip) return showStatus('Crée d’abord un voyage.');
     const form = $('#stepForm');
@@ -429,8 +461,8 @@
     $('#placeSearchResults').hidden = true;
     form.elements.lat.value = step?.lat ?? '';
     form.elements.lng.value = step?.lng ?? '';
-    form.elements.arrivalDate.value = step?.arrivalDate || '';
-    form.elements.departureDate.value = step?.departureDate || '';
+    form.elements.arrivalDate.value = step?.arrivalDate || defaults.arrivalDate || '';
+    form.elements.departureDate.value = step?.departureDate || defaults.departureDate || defaults.arrivalDate || '';
     form.elements.duration.value = step?.duration || '';
     form.elements.cost.value = step?.cost || '';
     form.elements.priority.value = step?.priority || 'optionnel';
@@ -510,6 +542,14 @@
   function renderItinerary() {
     const trip = activeTrip();
     Itinerary.renderSummary($('#itinerarySummary'), trip, state.settings);
+    Itinerary.renderDayPlanner($('#dayPlannerBoard'), trip, state.settings, {
+      editStep: stepId => openStepDialog(stepId),
+      addStep: date => openStepDialog(null, { arrivalDate: date, departureDate: date }),
+      openMap: stepId => {
+        switchView('map');
+        setTimeout(() => MapView.focusStep(stepId), 220);
+      }
+    });
     Itinerary.renderItinerary($('#itineraryList'), trip, state.settings, (stepId, field, value) => {
       const current = activeTrip();
       const step = current?.steps.find(item => item.id === stepId);
