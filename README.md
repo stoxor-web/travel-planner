@@ -1,165 +1,73 @@
-# Travel Planner — version connexion Google opérationnelle
+# Travel Planner
 
-Application web statique de planification de voyages avec connexion Google obligatoire et sauvegarde automatique dans Cloud Firestore.
+Application web statique de planification de voyages avec connexion Google et sauvegarde automatique dans Firebase.
 
-Cette version est prévue pour GitHub Pages : les visiteurs arrivent sur l’accueil, se connectent avec Google, puis leurs voyages se chargent automatiquement. Chaque modification est enregistrée en arrière-plan dans Firebase.
+## Fonctionnement
 
-## À remplacer dans le dépôt
+- L'utilisateur se connecte avec Google.
+- Ses voyages sont chargés depuis Cloud Firestore.
+- Chaque modification est sauvegardée automatiquement.
+- Les données sont isolées par compte Google dans `travelPlannerUsers/{uid}`.
+- Le site reste hébergeable gratuitement sur GitHub Pages.
 
-Remplace ces fichiers :
+## Fichiers importants
 
 ```text
 index.html
-README.md
-firestore.rules
 css/style.css
+js/firebase-config.js
+js/firebase-sync.js
 js/app.js
 js/storage.js
-js/firebase-sync.js
-js/utils.js
+firestore.rules
 ```
 
-Garde ton fichier déjà configuré :
+## Configuration Firebase déjà intégrée
+
+Le fichier `js/firebase-config.js` contient la configuration du projet Firebase :
+
+```js
+window.TRAVEL_PLANNER_FIREBASE_CONFIG = {
+  apiKey: "...",
+  authDomain: "travel-planner-60337.firebaseapp.com",
+  projectId: "travel-planner-60337",
+  storageBucket: "travel-planner-60337.firebasestorage.app",
+  messagingSenderId: "981112659597",
+  appId: "1:981112659597:web:92a0e42989ca6386458cc4",
+  measurementId: "G-YMK5EDLSM9"
+};
+```
+
+Le site n'utilise pas la syntaxe `import { initializeApp } from "firebase/app"`, car GitHub Pages sert directement des fichiers statiques sans étape de compilation npm. Les modules Firebase sont chargés depuis le CDN officiel dans `js/firebase-sync.js`.
+
+## Règles Firestore
+
+Copier le contenu de `firestore.rules` dans :
 
 ```text
-js/firebase-config.js
+Firebase Console > Firestore Database > Rules
 ```
 
-L’archive de mise à jour ne l’écrase pas. Un exemple est fourni dans :
+Les règles limitent l'accès aux données de l'utilisateur connecté uniquement.
 
-```text
-js/firebase-config.example.js
-```
+## Publication GitHub Pages
 
-## Fonctionnement utilisateur
+1. Remplacer les fichiers du dépôt par ceux de ce dossier.
+2. Vérifier que le domaine `stoxor-web.github.io` est autorisé dans Firebase Authentication.
+3. Publier le dépôt sur GitHub Pages.
+4. Ouvrir le site.
+5. Cliquer sur `Continuer avec Google`.
 
-1. L’utilisateur ouvre le site.
-2. Il clique sur **Continuer avec Google**.
-3. Firebase Authentication valide le compte.
-4. Le site charge automatiquement le document Firestore de l’utilisateur.
-5. Si aucun document n’existe encore, il est créé.
-6. Les voyages sont sauvegardés automatiquement après modification.
-7. À la prochaine visite, les données réapparaissent après connexion.
+## Test rapide
 
-## Données Firestore
+Après connexion :
 
-Le site utilise un document par compte Google :
+1. Créer un voyage.
+2. Ajouter une étape.
+3. Recharger la page.
+4. Le voyage doit réapparaître automatiquement.
+5. Vérifier dans Firestore la présence de :
 
 ```text
 travelPlannerUsers/{uid}
 ```
-
-Le document contient :
-
-```text
-ownerUid
-ownerEmail
-schema
-schemaVersion
-clientUpdatedAt
-updatedAt
-state
-```
-
-`state` contient les paramètres, le voyage actif et la liste des voyages.
-
-## Règles Firestore
-
-Colle le contenu du fichier `firestore.rules` dans :
-
-```text
-Firebase Console → Firestore Database → Rules
-```
-
-Ces règles autorisent uniquement l’utilisateur connecté à lire, créer, modifier ou supprimer son propre document.
-
-## Configuration Firebase requise
-
-Dans Firebase Console :
-
-```text
-Authentication → Sign-in method → Google → Enable
-Authentication → Settings → Authorized domains
-```
-
-Ajoute au minimum :
-
-```text
-stoxor-web.github.io
-localhost
-127.0.0.1
-```
-
-Dans `js/firebase-config.js`, garde les valeurs de ton application Web Firebase :
-
-```js
-window.TRAVEL_PLANNER_FIREBASE_CONFIG = {
-  apiKey: '...',
-  authDomain: 'ton-projet.firebaseapp.com',
-  projectId: 'ton-projet',
-  appId: '...',
-  storageBucket: 'ton-projet.appspot.com',
-  messagingSenderId: '...'
-};
-```
-
-## Fichiers principaux
-
-```text
-travel-planner/
-├── index.html
-├── README.md
-├── firestore.rules
-├── css/
-│   └── style.css
-├── js/
-│   ├── app.js
-│   ├── firebase-config.js
-│   ├── firebase-config.example.js
-│   ├── firebase-sync.js
-│   ├── storage.js
-│   ├── map.js
-│   ├── budget.js
-│   ├── itinerary.js
-│   ├── suggestions.js
-│   └── utils.js
-└── assets/
-    ├── icons/
-    └── images/
-```
-
-## Ce qui a été nettoyé
-
-- Plus d’export/import JSON dans l’interface.
-- Plus de sauvegarde locale des voyages.
-- Plus de bouton de synchronisation manuel.
-- Plus de bouton de voyage exemple sur l’accueil.
-- Messages de connexion plus courts.
-- Accès aux pages bloqué tant que l’utilisateur n’est pas connecté.
-- Gestion d’erreurs Firebase plus claire.
-- Connexion Google avec popup et repli redirect si le navigateur bloque la fenêtre.
-
-## Test rapide
-
-Après publication :
-
-1. ouvre `https://stoxor-web.github.io/travel-planner/` ;
-2. clique sur **Continuer avec Google** ;
-3. accepte la connexion ;
-4. crée un voyage ;
-5. actualise la page ;
-6. reconnecte-toi si nécessaire ;
-7. vérifie que le voyage revient automatiquement ;
-8. ouvre Firestore Database → Data ;
-9. vérifie la présence de `travelPlannerUsers/{uid}`.
-
-## Erreurs courantes
-
-`Ce domaine n’est pas autorisé dans Firebase Authentication.`  
-Ajoute `stoxor-web.github.io` dans les domaines autorisés.
-
-`Accès Firebase refusé. Vérifie les règles Firestore.`  
-Vérifie les règles `firestore.rules` et que la base Firestore est bien créée.
-
-`Configuration Firebase manquante.`  
-Vérifie que `js/firebase-config.js` contient tes vraies valeurs Firebase.
