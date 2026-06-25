@@ -1046,3 +1046,15 @@ body.dark .auth-mini-grid div {
 @media (max-width: 520px) {
   .place-search-row { grid-template-columns: 1fr; }
 }
+
+.map-message {
+  min-height: inherit;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
