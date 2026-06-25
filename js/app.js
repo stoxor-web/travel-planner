@@ -147,9 +147,15 @@
     $$('.nav-item').forEach(item => item.classList.toggle('is-active', item.dataset.viewLink === view));
     $('#pageTitle').textContent = titles[view];
     if (view === 'map') {
-      MapView.initMap();
-      renderMap();
-      MapView.invalidate();
+      requestAnimationFrame(() => {
+        MapView.initMap();
+        renderMap();
+        MapView.invalidate(120);
+        setTimeout(() => {
+          renderMap();
+          MapView.invalidate(300);
+        }, 260);
+      });
     }
     if (view === 'budget') renderBudget();
     if (view === 'suggestions') renderSuggestions();
@@ -703,8 +709,10 @@
     MapView.renderFilters($('#mapFilters'), trip, () => renderMap());
     MapView.renderMapSteps($('#mapStepsList'), trip);
     if (currentView === 'map') {
-      MapView.updateMap(trip, state.settings);
-      MapView.invalidate(140);
+      requestAnimationFrame(() => {
+        MapView.updateMap(trip, state.settings);
+        MapView.invalidate(180);
+      });
     }
   }
 
