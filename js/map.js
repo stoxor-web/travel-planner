@@ -12,6 +12,17 @@
     'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'
   ];
 
+  const routeStyles = {
+    car: { color: '#2563eb', dashArray: null, weight: 5 },
+    train: { color: '#16a34a', dashArray: '10 8', weight: 5 },
+    plane: { color: '#7c3aed', dashArray: '3 9', weight: 4 },
+    bus: { color: '#f59e0b', dashArray: '8 8', weight: 5 },
+    bike: { color: '#14b8a6', dashArray: '5 7', weight: 4 },
+    walk: { color: '#64748b', dashArray: '2 8', weight: 4 },
+    boat: { color: '#0284c7', dashArray: '12 7', weight: 4 },
+    other: { color: '#0f172a', dashArray: '6 8', weight: 4 }
+  };
+
   let map = null;
   let markersLayer = null;
   let routeLayer = null;
@@ -22,6 +33,7 @@
   let pendingSettings = null;
   let loadingPromise = null;
   let lastError = '';
+  let selectedSegmentIndex = null;
 
   const tileLayers = {
     classique: {
@@ -51,6 +63,10 @@
     return window.TravelUtils || {};
   }
 
+  function getItinerary() {
+    return window.TravelItinerary || {};
+  }
+
   function getMapElement() {
     return document.getElementById('travelMap');
   }
@@ -58,6 +74,21 @@
   function getMapCard() {
     const element = getMapElement();
     return element?.closest('.map-card') || element?.parentElement || null;
+  }
+
+  function injectLeafletCriticalCss() {
+    if (document.getElementById('leaflet-critical-inline')) return;
+    const style = document.createElement('style');
+    style.id = 'leaflet-critical-inline';
+    style.textContent = `
+      .leaflet-pane,.leaflet-tile,.leaflet-marker-icon,.leaflet-marker-shadow,.leaflet-tile-container,.leaflet-pane>svg,.leaflet-pane>canvas,.leaflet-zoom-box,.leaflet-image-layer,.leaflet-layer{position:absolute!important;left:0;top:0}
+      .leaflet-container{overflow:hidden!important;touch-action:pan-x pan-y;background:#dbeafe;outline-offset:1px}
+      .leaflet-container img.leaflet-tile,.leaflet-container .leaflet-marker-pane img,.leaflet-container .leaflet-shadow-pane img{max-width:none!important;max-height:none!important}
+      .leaflet-tile,.leaflet-marker-icon,.leaflet-marker-shadow{-webkit-user-select:none;user-select:none;-webkit-user-drag:none}
+      .leaflet-tile-pane{z-index:200}.leaflet-overlay-pane{z-index:400}.leaflet-shadow-pane{z-index:500}.leaflet-marker-pane{z-index:600}.leaflet-tooltip-pane{z-index:650}.leaflet-popup-pane{z-index:700}
+      .leaflet-top,.leaflet-bottom{position:absolute;z-index:1000;pointer-events:none}.leaflet-top{top:0}.leaflet-bottom{bottom:0}.leaflet-left{left:0}.leaflet-right{right:0}.leaflet-control{position:relative;z-index:800;pointer-events:auto;float:left;clear:both}
+    `;
+    document.head.appendChild(style);
   }
 
   function ensureMapStatus() {
@@ -128,13 +159,25 @@
     });
   }
 
+  function leafletCssLooksApplied() {
+    const probe = document.createElement('div');
+    probe.className = 'leaflet-tile';
+    probe.style.display = 'none';
+    document.body.appendChild(probe);
+    const ok = window.getComputedStyle(probe).position === 'absolute';
+    probe.remove();
+    return ok;
+  }
+
   async function ensureLeaflet() {
+    injectLeafletCriticalCss();
     if (window.L) return;
     if (loadingPromise) return loadingPromise;
 
     loadingPromise = (async () => {
       setMapStatus('Chargement de la carte…', 'loading');
       await Promise.all(LEAFLET_CSS_URLS.map(loadCssOnce));
+      injectLeafletCriticalCss();
 
       let lastLoadError = null;
       for (const url of LEAFLET_JS_URLS) {
@@ -161,6 +204,8 @@
   async function initMap() {
     const element = getMapElement();
     if (!element) return null;
+    injectLeafletCriticalCss();
+
     if (map) {
       invalidate();
       return map;
@@ -173,7 +218,8 @@
       map = L.map(element, {
         zoomControl: true,
         scrollWheelZoom: true,
-        attributionControl: true
+        attributionControl: true,
+        worldCopyJump: true
       }).setView(DEFAULT_CENTER, DEFAULT_ZOOM);
 
       const baseLayers = {};
@@ -183,14 +229,14 @@
 
       tileLayer = baseLayers.classique.addTo(map);
       tileLayer.on('tileerror', () => {
-        setMapStatus('Certaines tuiles de carte ne se chargent pas. La connexion ou le fournisseur de tuiles peut être temporairement indisponible.', 'warning');
+        setMapStatus('Certaines zones de la carte ne se chargent pas. Réessaie de recentrer ou change de fond de carte.', 'warning');
       });
 
       L.control.layers(baseLayers, null, { position: 'topright' }).addTo(map);
       markersLayer = L.layerGroup().addTo(map);
       routeLayer = L.layerGroup().addTo(map);
       setMapStatus('', 'info');
-      invalidate();
+      forceResizeSequence();
       return map;
     } catch (error) {
       lastError = error.message || 'Carte indisponible.';
@@ -202,14 +248,20 @@
 
   function invalidate() {
     if (!map) return;
-    window.requestAnimationFrame(() => {
-      try {
-        map.invalidateSize(true);
-        setTimeout(() => map.invalidateSize(true), 200);
-      } catch (error) {
-        console.warn('[TravelMap] invalidateSize impossible', error);
-      }
-    });
+    try {
+      map.invalidateSize(true);
+    } catch (error) {
+      console.warn('[TravelMap] invalidateSize impossible', error);
+    }
+  }
+
+  function forceResizeSequence() {
+    if (!map) return;
+    const delays = [0, 80, 220, 520, 1000];
+    delays.forEach(delay => window.setTimeout(() => {
+      invalidate();
+      if (pendingTrip) fitBounds();
+    }, delay));
   }
 
   function getValidSteps(trip) {
@@ -234,9 +286,7 @@
       knownTypesSignature = signature;
       return types;
     }
-    types.forEach(type => {
-      if (!activeTypes.has(type) && !knownTypesSignature.includes(type)) activeTypes.add(type);
-    });
+    types.forEach(type => activeTypes.add(type));
     return types;
   }
 
@@ -248,6 +298,23 @@
     const mapInstance = await initMap();
     if (!mapInstance) return;
     drawTrip(trip);
+  }
+
+  function getSegments(trip, settings) {
+    const itinerary = getItinerary();
+    if (typeof itinerary.buildSegments === 'function') return itinerary.buildSegments(trip, settings);
+    const U = getUtils();
+    const sortSteps = U.sortSteps || (steps => steps || []);
+    const estimateSegment = U.estimateSegment || (() => ({}));
+    const steps = sortSteps(trip?.steps || []);
+    return steps.slice(0, -1).map((from, index) => ({ from, to: steps[index + 1], index, ...estimateSegment(from, steps[index + 1], from.transportToNext || 'car', settings) }));
+  }
+
+  function segmentLatLngs(segment) {
+    const U = getUtils();
+    const isValidCoord = U.isValidCoord || (() => false);
+    if (!isValidCoord(segment.from) || !isValidCoord(segment.to)) return [];
+    return [[Number(segment.from.lat), Number(segment.from.lng)], [Number(segment.to.lat), Number(segment.to.lng)]];
   }
 
   function drawTrip(trip) {
@@ -263,7 +330,8 @@
     const steps = getValidSteps(trip);
     if (!steps.length) {
       map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
-      setMapStatus('Ajoute au moins une étape avec une adresse ou des coordonnées pour afficher la carte du voyage.', 'empty');
+      setMapStatus('Ajoute au moins une étape avec une adresse ou des coordonnées pour afficher la carte.', 'empty');
+      forceResizeSequence();
       return;
     }
 
@@ -275,7 +343,26 @@
 
     setMapStatus('', 'info');
 
-    const coordinates = selected.map(step => [Number(step.lat), Number(step.lng)]);
+    const segments = getSegments(trip, pendingSettings).filter(segment => {
+      const fromType = segment.from?.type || 'étape';
+      const toType = segment.to?.type || 'étape';
+      return (!activeTypes.size || (activeTypes.has(fromType) && activeTypes.has(toType))) && segmentLatLngs(segment).length === 2;
+    });
+
+    segments.forEach(segment => {
+      const style = routeStyles[segment.mode] || routeStyles.other;
+      const latLngs = segmentLatLngs(segment);
+      const polyline = L.polyline(latLngs, {
+        color: style.color,
+        weight: selectedSegmentIndex === segment.index ? style.weight + 2 : style.weight,
+        opacity: selectedSegmentIndex === segment.index ? 0.95 : 0.78,
+        dashArray: style.dashArray || undefined,
+        lineCap: 'round',
+        lineJoin: 'round'
+      }).addTo(routeLayer);
+      polyline.bindPopup(`<strong>${escapeHtml(segment.from.name)} → ${escapeHtml(segment.to.name)}</strong><br>${escapeHtml(segment.modeIcon || '')} ${escapeHtml(segment.modeLabel || 'trajet')}`);
+    });
+
     selected.forEach((step, index) => {
       if (!isValidCoord(step)) return;
       const marker = L.marker([Number(step.lat), Number(step.lng)], {
@@ -297,34 +384,28 @@
       marker.addTo(markersLayer);
     });
 
-    if (coordinates.length >= 2) {
-      L.polyline(coordinates, {
-        weight: 4,
-        opacity: 0.85,
-        dashArray: '8 8',
-        lineCap: 'round',
-        lineJoin: 'round'
-      }).addTo(routeLayer);
-    }
-
     fitBounds();
-    invalidate();
+    forceResizeSequence();
   }
 
   function fitBounds() {
     if (!map || !markersLayer) return;
-    const layers = markersLayer.getLayers();
+    const markerLayers = markersLayer.getLayers();
+    const routeLayers = routeLayer?.getLayers?.() || [];
+    const layers = [...markerLayers, ...routeLayers];
     if (!layers.length) {
       map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
       return;
     }
-    if (layers.length === 1) {
-      const latLng = layers[0].getLatLng();
+    if (markerLayers.length === 1) {
+      const latLng = markerLayers[0].getLatLng();
       map.setView(latLng, 12, { animate: true });
       return;
     }
     const group = L.featureGroup(layers);
-    map.fitBounds(group.getBounds().pad(0.25), { animate: true, maxZoom: 12 });
+    const bounds = group.getBounds();
+    if (!bounds.isValid()) return;
+    map.fitBounds(bounds.pad(0.18), { animate: true, maxZoom: 12 });
   }
 
   function renderFallback(trip, reason) {
@@ -398,6 +479,7 @@
         await initMap();
         if (map) {
           map.setView([Number(step.lat), Number(step.lng)], 13, { animate: true });
+          forceResizeSequence();
         } else {
           const url = `https://www.openstreetmap.org/?mlat=${encodeURIComponent(step.lat)}&mlon=${encodeURIComponent(step.lng)}#map=13/${encodeURIComponent(step.lat)}/${encodeURIComponent(step.lng)}`;
           window.open(url, '_blank', 'noopener');
@@ -406,9 +488,66 @@
     });
   }
 
+  function renderMapRoutes(container, trip, settings, onChangeSegment) {
+    if (!container) return;
+    const U = getUtils();
+    const escapeHtml = U.escapeHtml || (value => String(value ?? ''));
+    const formatDistance = U.formatDistance || (value => `${value} km`);
+    const formatDuration = U.formatDuration || (value => `${value} h`);
+    const formatMoney = U.formatMoney || (value => String(value));
+    const transportModes = U.transportModes || {};
+    const segments = getSegments(trip, settings);
+
+    if (!trip || !segments.length) {
+      container.innerHTML = '<div class="empty-state">Ajoute au moins deux étapes pour créer un trajet.</div>';
+      return;
+    }
+
+    const modeOptions = Object.entries(transportModes)
+      .map(([value, mode]) => `<option value="${value}">${mode.icon} ${mode.label}</option>`).join('');
+
+    container.innerHTML = segments.map(segment => {
+      const hasCoords = segmentLatLngs(segment).length === 2;
+      return `
+        <article class="map-route ${selectedSegmentIndex === segment.index ? 'is-active' : ''}" data-map-route="${segment.index}">
+          <span class="map-route__icon">${escapeHtml(segment.modeIcon || '➜')}</span>
+          <div class="map-route__body">
+            <strong>${escapeHtml(segment.from.name || 'Départ')} → ${escapeHtml(segment.to.name || 'Arrivée')}</strong>
+            <span class="route-badge">${escapeHtml(segment.modeIcon || '➜')} ${escapeHtml(segment.modeLabel || 'trajet')}</span>
+            <small>${hasCoords ? `${formatDistance(segment.distance)} · ${formatDuration(segment.duration)} · ${formatMoney(segment.cost, trip.currency)}` : 'Coordonnées à compléter pour calculer ce trajet.'}</small>
+            <select class="input" data-map-route-mode="${escapeHtml(segment.from.id)}" aria-label="Mode de transport">
+              ${modeOptions}
+            </select>
+          </div>
+        </article>
+      `;
+    }).join('');
+
+    container.querySelectorAll('[data-map-route-mode]').forEach(select => {
+      const segment = segments.find(item => item.from.id === select.dataset.mapRouteMode);
+      select.value = segment?.mode || 'car';
+      select.addEventListener('change', event => onChangeSegment?.(event.target.dataset.mapRouteMode, 'transportToNext', event.target.value));
+    });
+
+    container.querySelectorAll('[data-map-route]').forEach(card => {
+      card.addEventListener('click', async event => {
+        if (event.target.matches('select')) return;
+        selectedSegmentIndex = Number(card.dataset.mapRoute);
+        await initMap();
+        drawTrip(trip);
+        const segment = segments[selectedSegmentIndex];
+        const latLngs = segmentLatLngs(segment);
+        if (map && latLngs.length === 2) {
+          map.fitBounds(L.latLngBounds(latLngs).pad(0.35), { animate: true, maxZoom: 9 });
+          forceResizeSequence();
+        }
+      });
+    });
+  }
+
   function activate() {
     initMap().then(() => {
-      invalidate();
+      forceResizeSequence();
       if (pendingTrip) drawTrip(pendingTrip);
     });
   }
@@ -423,11 +562,13 @@
     const rect = element?.getBoundingClientRect();
     return {
       leafletLoaded: Boolean(window.L),
+      leafletCssOk: leafletCssLooksApplied(),
       mapCreated: Boolean(map),
       containerFound: Boolean(element),
       containerWidth: rect ? Math.round(rect.width) : 0,
       containerHeight: rect ? Math.round(rect.height) : 0,
       visible: isMapVisible(),
+      stepsWithCoordinates: getValidSteps(pendingTrip).length,
       lastError
     };
   }
@@ -440,6 +581,7 @@
     fitBounds,
     renderFilters,
     renderMapSteps,
+    renderMapRoutes,
     resetFilters,
     getDiagnostics
   };

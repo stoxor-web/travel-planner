@@ -8,6 +8,7 @@
   const Suggestions = window.TravelSuggestions;
   const MapView = window.TravelMap;
   const CloudSync = window.TravelCloudSync;
+  const Geocoder = window.TravelGeocoder;
 
   let state = Storage.load();
   let cloudAutosaveTimer = null;
@@ -59,6 +60,33 @@
     window.addEventListener('hashchange', () => switchView(location.hash.replace('#', '') || 'dashboard'));
   }
 
+  function bindPlaceSearch() {
+    if (!Geocoder?.attachStepSearch) return;
+    const form = $('#stepForm');
+    Geocoder.attachStepSearch({
+      input: $('#placeSearchInput'),
+      button: $('#placeSearchBtn'),
+      resultsContainer: $('#placeSearchResults'),
+      statusElement: $('#placeSearchStatus'),
+      getContext: () => activeTrip(),
+      getCategory: () => document.querySelector('.place-chip.is-active')?.dataset.placeCategory || '',
+      onSelect: place => {
+        if (!form || !place) return;
+        form.elements.name.value = place.name || place.displayName || 'Lieu';
+        form.elements.type.value = U.placeTypes.includes(place.type) ? place.type : 'autre';
+        if (form.elements.address) form.elements.address.value = place.address || place.displayName || '';
+        form.elements.lat.value = Number(place.lat).toFixed(6);
+        form.elements.lng.value = Number(place.lng).toFixed(6);
+      }
+    });
+    document.querySelectorAll('.place-chip').forEach(button => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('.place-chip').forEach(item => item.classList.remove('is-active'));
+        button.classList.add('is-active');
+      });
+    });
+  }
+
   function bindActions() {
     const on = (id, event, handler) => {
       const element = document.getElementById(id);
@@ -96,6 +124,7 @@
     on('saveSettingsBtn', 'click', saveSettings);
     on('deleteCloudDataBtn', 'click', deleteCloudData);
     bindCloudActions();
+    bindPlaceSearch();
     window.addEventListener('resize', () => MapView.invalidate());
     $$('[data-close-dialog]').forEach(button => button.addEventListener('click', () => {
       const dialog = document.getElementById(button.dataset.closeDialog);
@@ -371,7 +400,7 @@
     list.querySelectorAll('[data-move-step]').forEach(button => button.addEventListener('click', () => moveStep(button.dataset.stepId, button.dataset.moveStep)));
   }
 
-  function openStepDialog(stepId = null) {
+  function openStepDialog(stepId = null, defaultArrivalDate = '') {
     const trip = activeTrip();
     if (!trip) return showStatus('Crée d’abord un voyage.');
     const form = $('#stepForm');
@@ -383,7 +412,8 @@
     form.elements.type.value = step?.type || 'ville';
     form.elements.lat.value = step?.lat ?? '';
     form.elements.lng.value = step?.lng ?? '';
-    form.elements.arrivalDate.value = step?.arrivalDate || '';
+    if (form.elements.address) form.elements.address.value = step?.address || '';
+    form.elements.arrivalDate.value = step?.arrivalDate || defaultArrivalDate || '';
     form.elements.departureDate.value = step?.departureDate || '';
     form.elements.duration.value = step?.duration || '';
     form.elements.cost.value = step?.cost || '';
@@ -411,6 +441,7 @@
       type: String(data.get('type') || 'ville'),
       lat: data.get('lat') === '' ? '' : Number(data.get('lat')),
       lng: data.get('lng') === '' ? '' : Number(data.get('lng')),
+      address: String(data.get('address') || ''),
       arrivalDate: String(data.get('arrivalDate') || ''),
       departureDate: String(data.get('departureDate') || ''),
       duration: String(data.get('duration') || ''),
@@ -460,15 +491,23 @@
     trip.steps = U.sortSteps(trip.steps).map((step, order) => ({ ...step, order }));
   }
 
+  function updateSegmentField(stepId, field, value) {
+    const current = activeTrip();
+    const step = current?.steps.find(item => item.id === stepId);
+    if (!step) return;
+    step[field] = field === 'segmentCost' ? Number(value) || 0 : value;
+    persist('Trajet mis à jour.');
+  }
+
   function renderItinerary() {
     const trip = activeTrip();
     Itinerary.renderSummary($('#itinerarySummary'), trip, state.settings);
+    Itinerary.renderDayPlanner?.($('#dayPlannerBoard'), trip, state.settings, {
+      editStep: stepId => openStepDialog(stepId),
+      addStep: date => openStepDialog(null, date)
+    });
     Itinerary.renderItinerary($('#itineraryList'), trip, state.settings, (stepId, field, value) => {
-      const current = activeTrip();
-      const step = current?.steps.find(item => item.id === stepId);
-      if (!step) return;
-      step[field] = field === 'segmentCost' ? Number(value) || 0 : value;
-      persist('Segment mis à jour.');
+      updateSegmentField(stepId, field, value);
     });
   }
 
@@ -830,6 +869,9 @@
     if (!MapView) return;
     const trip = activeTrip();
     MapView.renderFilters($('#mapFilters'), trip, () => renderMap());
+    MapView.renderMapRoutes?.($('#mapRoutesList'), trip, state.settings, (stepId, field, value) => {
+      updateSegmentField(stepId, field, value);
+    });
     MapView.renderMapSteps($('#mapStepsList'), trip);
     if (currentView === 'map') {
       MapView.updateMap(trip, state.settings);
@@ -845,8 +887,10 @@
     }
     const details = [
       diagnostic.leafletLoaded ? 'Leaflet chargé' : 'Leaflet non chargé',
+      diagnostic.leafletCssOk ? 'CSS carte OK' : 'CSS carte corrigé localement',
       diagnostic.mapCreated ? 'carte créée' : 'carte non créée',
-      diagnostic.containerFound ? `zone ${diagnostic.containerWidth}×${diagnostic.containerHeight}px` : 'zone carte introuvable'
+      diagnostic.containerFound ? `zone ${diagnostic.containerWidth}×${diagnostic.containerHeight}px` : 'zone carte introuvable',
+      `${diagnostic.stepsWithCoordinates || 0} étape(s) géolocalisée(s)`
     ].join(' · ');
     showStatus(`Carte : ${details}${diagnostic.lastError ? ` · ${diagnostic.lastError}` : ''}`);
   }
