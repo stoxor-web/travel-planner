@@ -186,12 +186,37 @@
 
     if (!user || !appReady) {
       grid.innerHTML = `
-        <div class="login-gate">
-          <div class="login-gate__icon">☁️</div>
-          <h2>Connexion Google requise</h2>
-          <p>Tes voyages sont maintenant stockés uniquement dans Firebase. Connecte-toi pour charger automatiquement tes données et synchroniser chaque modification.</p>
-          <button class="button button--primary" id="dashboardSignInBtn">Se connecter avec Google</button>
-          <small>Le site n’utilise plus de sauvegarde locale de voyages ni d’export JSON.</small>
+        <div class="auth-landing">
+          <div class="auth-card">
+            <div class="auth-card__badge"><span></span> Firebase Cloud Sync</div>
+            <h2>Connecte-toi pour retrouver ton espace voyage</h2>
+            <p>Ton tableau de bord est privé : chaque itinéraire, budget et carnet est chargé depuis ton compte Google, puis sauvegardé automatiquement dans Firebase.</p>
+            <button class="button button--google auth-card__button" id="dashboardSignInBtn">
+              <span class="google-mark">G</span>
+              <span>Continuer avec Google</span>
+            </button>
+            <div class="auth-card__meta">
+              <span>🔐 Accès privé</span>
+              <span>☁️ Auto-save</span>
+              <span>📱 Multi-appareils</span>
+            </div>
+          </div>
+
+          <div class="auth-preview" aria-hidden="true">
+            <div class="auth-preview__top">
+              <span></span><span></span><span></span>
+            </div>
+            <div class="auth-route-card">
+              <small>Voyage synchronisé</small>
+              <strong>Paris → Venise</strong>
+              <div class="auth-route-line"><i></i><i></i><i></i><i></i></div>
+            </div>
+            <div class="auth-mini-grid">
+              <div><strong>4</strong><small>étapes</small></div>
+              <div><strong>92%</strong><small>préparé</small></div>
+              <div><strong>auto</strong><small>cloud</small></div>
+            </div>
+          </div>
         </div>
       `;
       document.getElementById('dashboardSignInBtn')?.addEventListener('click', handleCloudSignIn);
@@ -768,15 +793,30 @@
 
     document.body.classList.toggle('is-cloud-locked', !appReady || !user);
 
-    if (statusEl) statusEl.textContent = status || (configured ? 'Connexion Google requise.' : 'Firebase non configuré.');
+    if (statusEl) {
+      const statusText = status || (configured ? 'Connexion Google requise.' : 'Firebase non configuré.');
+      const statusMode = !configured ? 'error' : user && appReady ? 'success' : cloudLoading ? 'loading' : 'idle';
+      statusEl.classList.remove('cloud-status--idle', 'cloud-status--success', 'cloud-status--loading', 'cloud-status--error');
+      statusEl.classList.add(`cloud-status--${statusMode}`);
+      statusEl.innerHTML = `<span class="cloud-status__dot"></span><span>${U.escapeHtml(statusText)}</span>`;
+    }
     if (profile) profile.hidden = !user;
     if (avatar && user) avatar.src = user.photoURL || '';
     if (name && user) name.textContent = user.displayName || 'Compte Google';
     if (email && user) email.textContent = user.email || '';
-    if (topButton) topButton.textContent = user ? '☁️ Connecté' : '☁️ Connexion Google';
+    if (topButton) {
+      topButton.classList.toggle('is-connected', Boolean(user));
+      topButton.innerHTML = user
+        ? '<span class="cloud-dot"></span><span>Connecté</span>'
+        : '<span class="cloud-dot"></span><span>Connexion Google</span>';
+    }
     if (signInBtn) {
-      signInBtn.disabled = !configured || Boolean(user);
-      signInBtn.textContent = user ? 'Connecté avec Google' : 'Se connecter avec Google';
+      signInBtn.disabled = !configured || Boolean(user) || cloudLoading;
+      signInBtn.innerHTML = cloudLoading && !user
+        ? '<span class="google-mark">…</span><span>Connexion en cours…</span>'
+        : user
+          ? '<span class="google-mark">✓</span><span>Connecté avec Google</span>'
+          : '<span class="google-mark">G</span><span>Se connecter avec Google</span>';
     }
     if (signOutBtn) signOutBtn.disabled = !user;
     if (deleteCloudBtn) deleteCloudBtn.disabled = !user || !appReady;
