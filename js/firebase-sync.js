@@ -108,12 +108,24 @@
       } catch (error) {
         console.warn('Persistance Firebase Auth non modifiée.', error);
       }
+      try {
+        const redirectResult = await authModule.getRedirectResult(firebaseAuth);
+        if (redirectResult?.user) {
+          currentUser = redirectResult.user;
+          currentStatus = `Connecté avec ${currentUser.email || currentUser.displayName || 'Google'}.`;
+          notifyAuthListeners();
+        }
+      } catch (error) {
+        console.warn('Résultat de redirection Google ignoré.', error);
+        currentStatus = humanizeFirebaseError(error);
+        notifyAuthListeners();
+      }
       authModule.onAuthStateChanged(firebaseAuth, user => {
         currentUser = user;
-        currentStatus = user ? `Connecté à Firebase avec ${user.email || user.displayName || 'un compte Google'}.` : 'Firebase configuré. Aucun compte Google connecté.';
+        currentStatus = user ? `Connecté avec ${user.email || user.displayName || 'Google'}.` : 'Connexion Google requise.';
         notifyAuthListeners();
       });
-      currentStatus = 'Firebase initialisé.';
+      currentStatus = currentUser ? `Connecté avec ${currentUser.email || currentUser.displayName || 'Google'}.` : 'Firebase prêt.';
       notifyAuthListeners();
       return { auth: firebaseAuth, db: firestoreDb, user: currentUser };
     })();
@@ -126,6 +138,19 @@
     }
   }
 
+  function humanizeFirebaseError(error) {
+    const code = error?.code || '';
+    const messages = {
+      'auth/unauthorized-domain': 'Domaine non autorisé dans Firebase Authentication.',
+      'auth/popup-blocked': 'Popup bloquée. Connexion par redirection lancée.',
+      'auth/cancelled-popup-request': 'Connexion déjà en cours.',
+      'auth/popup-closed-by-user': 'Fenêtre de connexion fermée.',
+      'auth/network-request-failed': 'Connexion réseau impossible.',
+      'permission-denied': 'Accès Firestore refusé. Vérifie les règles de sécurité.'
+    };
+    return messages[code] || error?.message || 'Erreur Firebase.';
+  }
+
   async function signIn() {
     const { auth } = await init();
     const { authModule } = await loadModules();
@@ -134,14 +159,17 @@
     try {
       const result = await authModule.signInWithPopup(auth, provider);
       currentUser = result.user;
-      currentStatus = `Connecté à Firebase avec ${currentUser.email || currentUser.displayName || 'Google'}.`;
+      currentStatus = `Connecté avec ${currentUser.email || currentUser.displayName || 'Google'}.`;
       notifyAuthListeners();
       return currentUser;
     } catch (error) {
-      if (['auth/popup-blocked', 'auth/cancelled-popup-request'].includes(error.code)) {
+      if (['auth/popup-blocked', 'auth/cancelled-popup-request', 'auth/operation-not-supported-in-this-environment'].includes(error.code)) {
+        currentStatus = 'Redirection Google en cours…';
+        notifyAuthListeners();
         await authModule.signInWithRedirect(auth, provider);
         return null;
       }
+      error.message = humanizeFirebaseError(error);
       throw error;
     }
   }

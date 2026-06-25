@@ -97,9 +97,9 @@
       if (element) element.addEventListener(event, handler);
     };
 
-    on('newTripBtn', 'click', openTripWizard);
-    on('createFirstTripBtn', 'click', openTripWizard);
-    on('openWizardBtn', 'click', openTripWizard);
+    on('newTripBtn', 'click', startTripWizardFlow);
+    on('createFirstTripBtn', 'click', startTripWizardFlow);
+    on('openWizardBtn', 'click', startTripWizardFlow);
     on('tripWizardForm', 'submit', saveTripWizard);
     on('loadDemoBtn', 'click', loadDemoTrip);
     on('tripSelector', 'change', event => {
@@ -367,6 +367,14 @@
 
   function parseTravellerNames(value) {
     return String(value || '').split(',').map(name => name.trim()).filter(Boolean);
+  }
+
+  async function startTripWizardFlow() {
+    if (!appReady || !CloudSync?.getUser()) {
+      const connected = await handleCloudSignIn();
+      if (!connected && !CloudSync?.getUser()) return;
+    }
+    openTripWizard();
   }
 
   function openTripWizard() {
@@ -1175,7 +1183,8 @@
     const signOutBtn = document.getElementById('cloudSignOutBtn');
     const deleteCloudBtn = document.getElementById('deleteCloudDataBtn');
     const syncMeta = document.getElementById('cloudSyncMeta');
-    const protectedControls = ['newTripBtn', 'createFirstTripBtn', 'loadDemoBtn', 'tripSelector', 'saveSettingsBtn'];
+    const protectedControls = ['tripSelector', 'saveSettingsBtn'];
+    const sidebarAccountState = document.getElementById('sidebarAccountState');
 
     document.body.classList.toggle('is-cloud-locked', !readOnlyMode && (!appReady || !user));
     document.body.classList.toggle('is-readonly', readOnlyMode);
@@ -1185,7 +1194,11 @@
     if (avatar && user) avatar.src = user.photoURL || '';
     if (name && user) name.textContent = user.displayName || 'Compte Google';
     if (email && user) email.textContent = user.email || '';
-    if (topButton) topButton.textContent = readOnlyMode ? '👁️ Lecture seule' : (user ? '☁️ Connecté' : '☁️ Connexion Google');
+    if (topButton) {
+      topButton.classList.toggle('is-connected', Boolean(user));
+      topButton.textContent = readOnlyMode ? '👁️ Lecture seule' : (user ? '☁️ Connecté' : '☁️ Connexion Google');
+    }
+    if (sidebarAccountState) sidebarAccountState.textContent = readOnlyMode ? 'Lecture seule' : (user ? 'Connecté' : 'Connexion requise');
     if (signInBtn) {
       signInBtn.disabled = !configured || Boolean(user);
       signInBtn.textContent = user ? 'Connecté avec Google' : 'Se connecter avec Google';
@@ -1196,7 +1209,12 @@
 
     protectedControls.forEach(id => {
       const element = document.getElementById(id);
-      if (element) element.disabled = readOnlyMode || !appReady || !user;
+      if (!element) return;
+      element.disabled = readOnlyMode || !appReady || !user;
+    });
+    ['newTripBtn', 'createFirstTripBtn', 'cloudAuthBtn', 'cloudSignInBtn'].forEach(id => {
+      const element = document.getElementById(id);
+      if (element) element.disabled = readOnlyMode ? id !== 'cloudAuthBtn' : false;
     });
   }
 
@@ -1215,16 +1233,27 @@
 
   async function handleCloudSignIn() {
     try {
+      if (!CloudSync?.isConfigured()) {
+        cloudLoading = false;
+        updateCloudUi({ configured: false, status: 'Firebase non configuré.' });
+        showStatus('Firebase n’est pas configuré.');
+        return false;
+      }
       cloudLoading = true;
       renderAll();
-      await CloudSync.signIn();
-      updateCloudUi();
+      const signedUser = await CloudSync.signIn();
+      const user = signedUser || CloudSync.getUser();
+      if (user) await handleCloudUserChange(user);
+      updateCloudUi({ user: CloudSync.getUser(), status: CloudSync.getStatus(), configured: true });
+      return Boolean(user || CloudSync.getUser());
     } catch (error) {
       console.error(error);
       cloudLoading = false;
-      showStatus(error.message || 'Connexion Google impossible.');
-      updateCloudUi({ status: error.message });
+      const message = error.message || 'Connexion Google impossible.';
+      showStatus(message);
+      updateCloudUi({ status: message });
       renderAll();
+      return false;
     }
   }
 
