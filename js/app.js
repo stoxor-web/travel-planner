@@ -886,9 +886,7 @@
       return;
     }
     const details = [
-      diagnostic.leafletLoaded ? 'Leaflet chargé' : 'Leaflet non chargé',
-      diagnostic.leafletCssOk ? 'CSS carte OK' : 'CSS carte corrigé localement',
-      diagnostic.mapCreated ? 'carte créée' : 'carte non créée',
+      diagnostic.mapCreated ? 'carte intégrée active' : 'carte non créée',
       diagnostic.containerFound ? `zone ${diagnostic.containerWidth}×${diagnostic.containerHeight}px` : 'zone carte introuvable',
       `${diagnostic.stepsWithCoordinates || 0} étape(s) géolocalisée(s)`
     ].join(' · ');
