@@ -320,10 +320,21 @@
         <button type="button" class="icon-button" data-close-dialog="stepDialog" aria-label="Fermer">×</button>
       </div>
       <input type="hidden" name="id" />
+      <div class="wide place-search-block">
+        <label>Rechercher un lieu
+          <div class="place-search-row">
+            <input class="input" id="placeSearchInput" name="placeSearch" autocomplete="off" placeholder="Ville, hôtel, adresse, monument..." />
+            <button type="button" class="button" id="placeSearchBtn">Rechercher</button>
+          </div>
+        </label>
+        <div id="placeSearchStatus" class="place-search-status" aria-live="polite"></div>
+        <div id="placeSearchResults" class="place-results" hidden></div>
+      </div>
       <label>Nom du lieu<input class="input" name="name" required placeholder="Paris" /></label>
       <label>Type
         <select class="input" name="type"></select>
       </label>
+      <label class="wide">Adresse retenue<input class="input" name="address" placeholder="Adresse ou nom complet du lieu" /></label>
       <label>Latitude<input class="input" name="lat" type="number" step="any" placeholder="48.8566" /></label>
       <label>Longitude<input class="input" name="lng" type="number" step="any" placeholder="2.3522" /></label>
       <label>Date d’arrivée<input class="input" name="arrivalDate" type="date" /></label>
@@ -397,6 +408,7 @@
   <script src="js/itinerary.js"></script>
   <script src="js/budget.js"></script>
   <script src="js/suggestions.js"></script>
+  <script src="js/geocoder.js"></script>
   <script src="js/map.js"></script>
   <script src="js/app.js"></script>
 </body>

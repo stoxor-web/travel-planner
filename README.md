@@ -1,6 +1,6 @@
 # Travel Planner
 
-Application web statique de planification de voyages avec connexion Google et sauvegarde automatique dans Firebase.
+Application web statique de planification de voyages avec connexion Google, sauvegarde automatique Firebase et recherche de lieux OpenStreetMap.
 
 ## Fonctionnement
 
@@ -9,6 +9,23 @@ Application web statique de planification de voyages avec connexion Google et sa
 - Chaque modification est sauvegardée automatiquement.
 - Les données sont isolées par compte Google dans `travelPlannerUsers/{uid}`.
 - Le site reste hébergeable gratuitement sur GitHub Pages.
+- Les étapes peuvent être ajoutées avec une recherche de ville, adresse, hôtel, monument ou activité.
+
+## Amélioration ajoutée
+
+### Recherche de lieu pour les étapes
+
+Dans la fenêtre `Ajouter une étape`, un champ `Rechercher un lieu` permet de trouver un endroit via OpenStreetMap/Nominatim.
+
+Quand un résultat est sélectionné, le formulaire remplit automatiquement :
+
+- le nom du lieu ;
+- le type probable ;
+- l'adresse ;
+- la latitude ;
+- la longitude.
+
+La saisie manuelle des coordonnées reste disponible si la recherche ne trouve pas le bon endroit.
 
 ## Fichiers importants
 
@@ -17,12 +34,14 @@ index.html
 css/style.css
 js/firebase-config.js
 js/firebase-sync.js
+js/geocoder.js
 js/app.js
 js/storage.js
+js/map.js
 firestore.rules
 ```
 
-## Configuration Firebase déjà intégrée
+## Configuration Firebase intégrée
 
 Le fichier `js/firebase-config.js` contient la configuration du projet Firebase :
 
@@ -38,7 +57,7 @@ window.TRAVEL_PLANNER_FIREBASE_CONFIG = {
 };
 ```
 
-Le site n'utilise pas la syntaxe `import { initializeApp } from "firebase/app"`, car GitHub Pages sert directement des fichiers statiques sans étape de compilation npm. Les modules Firebase sont chargés depuis le CDN officiel dans `js/firebase-sync.js`.
+Le site n'utilise pas la syntaxe `import { initializeApp } from "firebase/app"`, car GitHub Pages sert directement des fichiers statiques sans étape de compilation npm. Les modules Firebase sont chargés depuis le CDN dans `js/firebase-sync.js`.
 
 ## Règles Firestore
 
@@ -64,9 +83,13 @@ Après connexion :
 
 1. Créer un voyage.
 2. Ajouter une étape.
-3. Recharger la page.
-4. Le voyage doit réapparaître automatiquement.
-5. Vérifier dans Firestore la présence de :
+3. Rechercher `Paris`, `Tokyo Tower` ou une adresse.
+4. Sélectionner un résultat.
+5. Enregistrer l'étape.
+6. Recharger la page.
+7. Le voyage doit réapparaître automatiquement avec l'étape sur la carte.
+
+Dans Firestore, les données doivent apparaître dans :
 
 ```text
 travelPlannerUsers/{uid}
