@@ -7,13 +7,13 @@
   let firebaseApp = null;
   let firebaseAuth = null;
   let firestoreDb = null;
+  let analyticsInstance = null;
   let modules = null;
   let currentUser = null;
-  let currentStatus = 'Firebase non configuré.';
+  let authReady = false;
+  let currentStatus = 'Connexion Google requise.';
   let initializingPromise = null;
   let authReadyPromise = null;
-  let authReadyResolve = null;
-  let authUnsubscribe = null;
   const authListeners = new Set();
 
   function cleanConfig(config = {}) {
@@ -23,7 +23,8 @@
       projectId: String(config.projectId || '').trim(),
       appId: String(config.appId || '').trim(),
       storageBucket: String(config.storageBucket || '').trim(),
-      messagingSenderId: String(config.messagingSenderId || '').trim()
+      messagingSenderId: String(config.messagingSenderId || '').trim(),
+      measurementId: String(config.measurementId || '').trim()
     };
   }
 
@@ -31,7 +32,7 @@
     return cleanConfig(window.TRAVEL_PLANNER_FIREBASE_CONFIG || {});
   }
 
-  function isConfigured(config = getConfig()) {
+  function hasRequiredConfig(config = getConfig()) {
     return Boolean(config.apiKey && config.authDomain && config.projectId && config.appId);
   }
 
@@ -42,8 +43,21 @@
       import(`https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-auth.js`),
       import(`https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-firestore.js`)
     ]);
-    modules = { appModule, authModule, firestoreModule };
+    modules = { appModule, authModule, firestoreModule, analyticsModule: null };
     return modules;
+  }
+
+  async function initAnalyticsIfPossible(config) {
+    if (!config.measurementId || analyticsInstance) return;
+    try {
+      const analyticsModule = await import(`https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-analytics.js`);
+      if (await analyticsModule.isSupported()) {
+        analyticsInstance = analyticsModule.getAnalytics(firebaseApp);
+        modules.analyticsModule = analyticsModule;
+      }
+    } catch (error) {
+      console.warn('Analytics Google non initialisé.', error);
+    }
   }
 
   async function init() {
@@ -52,10 +66,10 @@
 
     initializingPromise = (async () => {
       const config = getConfig();
-      if (!isConfigured(config)) {
-        currentStatus = 'Firebase n’est pas configuré dans js/firebase-config.js.';
+      if (!hasRequiredConfig(config)) {
+        currentStatus = 'Configuration Google manquante.';
         notifyAuthListeners();
-        throw new Error(currentStatus);
+        throw new Error('La configuration Google/Firebase est incomplète dans js/firebase-config.js.');
       }
 
       const { appModule, authModule, firestoreModule } = await loadModules();
@@ -66,27 +80,28 @@
       try {
         await authModule.setPersistence(firebaseAuth, authModule.browserLocalPersistence);
       } catch (error) {
-        console.warn('Persistance Firebase Auth non modifiée.', error);
+        console.warn('Persistance de connexion non modifiée.', error);
       }
 
       if (!authReadyPromise) {
-        authReadyPromise = new Promise(resolve => { authReadyResolve = resolve; });
+        authReadyPromise = new Promise(resolve => {
+          authModule.onAuthStateChanged(firebaseAuth, user => {
+            currentUser = user;
+            authReady = true;
+            currentStatus = user ? 'Connecté.' : 'Connexion Google requise.';
+            notifyAuthListeners();
+            resolve(user);
+          }, error => {
+            authReady = true;
+            currentStatus = getFriendlyError(error);
+            notifyAuthListeners();
+            resolve(null);
+          });
+        });
       }
 
-      if (authUnsubscribe) authUnsubscribe();
-      authUnsubscribe = authModule.onAuthStateChanged(firebaseAuth, user => {
-        currentUser = user || null;
-        currentStatus = currentUser
-          ? `Connecté avec ${currentUser.email || currentUser.displayName || 'Google'}.`
-          : 'Connexion Google requise pour accéder aux voyages.';
-        notifyAuthListeners();
-        if (authReadyResolve) {
-          authReadyResolve(currentUser);
-          authReadyResolve = null;
-        }
-      });
-
-      currentStatus = 'Firebase initialisé.';
+      initAnalyticsIfPossible(config);
+      currentStatus = 'Connexion prête.';
       notifyAuthListeners();
       return { auth: firebaseAuth, db: firestoreDb, user: currentUser };
     })();
@@ -101,8 +116,7 @@
 
   async function waitForAuthState() {
     await init();
-    if (currentUser !== null) return currentUser;
-    if (!authReadyPromise) authReadyPromise = new Promise(resolve => { authReadyResolve = resolve; });
+    if (authReady) return currentUser;
     return authReadyPromise;
   }
 
@@ -111,18 +125,19 @@
     const { authModule } = await loadModules();
     const provider = new authModule.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
+
     try {
       const result = await authModule.signInWithPopup(auth, provider);
       currentUser = result.user;
-      currentStatus = `Connecté avec ${currentUser.email || currentUser.displayName || 'Google'}.`;
+      currentStatus = 'Connecté.';
       notifyAuthListeners();
       return currentUser;
     } catch (error) {
-      if (['auth/popup-blocked', 'auth/cancelled-popup-request'].includes(error.code)) {
+      if (['auth/popup-blocked', 'auth/cancelled-popup-request', 'auth/popup-closed-by-user'].includes(error.code)) {
         await authModule.signInWithRedirect(auth, provider);
         return null;
       }
-      throw error;
+      throw new Error(getFriendlyError(error));
     }
   }
 
@@ -131,13 +146,13 @@
     const { authModule } = await loadModules();
     await authModule.signOut(auth);
     currentUser = null;
-    currentStatus = 'Déconnecté de Google.';
+    currentStatus = 'Déconnecté.';
     notifyAuthListeners();
   }
 
   function requireSignedIn() {
-    if (!currentUser) throw new Error('Connecte-toi avec Google pour accéder à tes voyages.');
-    if (!firestoreDb) throw new Error('Firebase n’est pas initialisé.');
+    if (!currentUser) throw new Error('Connecte-toi avec Google.');
+    if (!firestoreDb) throw new Error('Connexion aux données indisponible.');
   }
 
   function cloudDocRef() {
@@ -167,8 +182,8 @@
       updatedAt: firestoreModule.serverTimestamp(),
       state: sanitizeStateForCloud(state)
     };
-    await firestoreModule.setDoc(cloudDocRef(), payload, { merge: false });
-    currentStatus = `Sauvegardé dans Firebase pour ${currentUser.email || 'ce compte Google'}.`;
+    await firestoreModule.setDoc(cloudDocRef(), payload);
+    currentStatus = 'Sauvegardé.';
     notifyAuthListeners();
     return payload;
   }
@@ -180,7 +195,7 @@
     const snapshot = await firestoreModule.getDoc(cloudDocRef());
     if (!snapshot.exists()) return null;
     const data = snapshot.data();
-    currentStatus = `Voyages chargés depuis Firebase pour ${currentUser.email || 'ce compte Google'}.`;
+    currentStatus = 'Données chargées.';
     notifyAuthListeners();
     return {
       state: data.state || null,
@@ -195,18 +210,18 @@
     requireSignedIn();
     const { firestoreModule } = await loadModules();
     await firestoreModule.deleteDoc(cloudDocRef());
-    currentStatus = 'Données Firebase supprimées pour ce compte Google.';
+    currentStatus = 'Données supprimées.';
     notifyAuthListeners();
   }
 
   function onAuthChange(listener) {
     authListeners.add(listener);
-    listener({ user: currentUser, status: currentStatus, configured: isConfigured() });
+    listener({ user: currentUser, status: currentStatus, configured: hasRequiredConfig(), ready: authReady });
     return () => authListeners.delete(listener);
   }
 
   function notifyAuthListeners() {
-    const payload = { user: currentUser, status: currentStatus, configured: isConfigured() };
+    const payload = { user: currentUser, status: currentStatus, configured: hasRequiredConfig(), ready: authReady };
     authListeners.forEach(listener => listener(payload));
   }
 
@@ -218,9 +233,19 @@
     return currentStatus;
   }
 
+  function getFriendlyError(error) {
+    const code = error?.code || '';
+    if (code === 'auth/unauthorized-domain') return 'Domaine non autorisé dans Firebase.';
+    if (code === 'auth/network-request-failed') return 'Connexion internet indisponible.';
+    if (code === 'auth/popup-closed-by-user') return 'Connexion annulée.';
+    if (code === 'permission-denied') return 'Accès refusé par les règles Firestore.';
+    if (String(error?.message || '').includes('Missing or insufficient permissions')) return 'Accès refusé par les règles Firestore.';
+    return error?.message || 'Erreur Google/Firebase.';
+  }
+
   window.TravelCloudSync = {
     getConfig,
-    isConfigured,
+    isConfigured: hasRequiredConfig,
     init,
     waitForAuthState,
     signIn,

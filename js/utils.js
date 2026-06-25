@@ -137,30 +137,6 @@
       .replace(/^-|-$/g, '') || 'voyage';
   }
 
-  function downloadJson(data, filename) {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  }
-
-  function readJsonFile(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        try { resolve(JSON.parse(reader.result)); }
-        catch (error) { reject(new Error('Le fichier JSON est invalide.')); }
-      };
-      reader.onerror = () => reject(new Error('Impossible de lire le fichier.'));
-      reader.readAsText(file);
-    });
-  }
-
   function deepMerge(target, source) {
     const output = Array.isArray(target) ? [...target] : { ...target };
     Object.entries(source || {}).forEach(([key, value]) => {
@@ -219,8 +195,6 @@
     haversineKm,
     estimateSegment,
     slug,
-    downloadJson,
-    readJsonFile,
     deepMerge,
     clone,
     sortSteps,
