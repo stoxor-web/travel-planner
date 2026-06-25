@@ -1,9 +1,6 @@
 (function () {
   'use strict';
 
-  // Depuis la version Firebase-only, ce module ne persiste plus les voyages dans localStorage.
-  // Il sert uniquement à normaliser l'état en mémoire avant lecture/écriture Firestore.
-  const LEGACY_KEY = 'travelPlanner:v1';
   const { defaultSettings, deepMerge, uid, createDefaultChecklists, clone } = window.TravelUtils;
 
   const emptyState = {
@@ -122,47 +119,20 @@
     return save(next);
   }
 
-  function importData(state, payload) {
-    if (!payload || typeof payload !== 'object') throw new Error('Format de sauvegarde non reconnu.');
-    const incomingTrips = Array.isArray(payload.trips) ? payload.trips : (payload.id ? [payload] : []);
-    if (!incomingTrips.length) throw new Error('Aucun voyage trouvé dans ce fichier.');
-    const next = normalizeState(state);
-    const existingById = new Map(next.trips.map(trip => [trip.id, trip]));
-    incomingTrips.forEach(trip => {
-      const normalized = normalizeTrip(trip);
-      if (existingById.has(normalized.id)) normalized.id = uid('trip');
-      next.trips.unshift(normalized);
-      next.activeTripId = normalized.id;
-    });
-    if (payload.settings) next.settings = deepMerge(next.settings, payload.settings);
-    return save(next);
-  }
-
   function reset() {
     return createEmptyState();
   }
 
-  function clearLegacyLocalBackup() {
-    try {
-      localStorage.removeItem(LEGACY_KEY);
-    } catch (error) {
-      console.warn('Impossible de nettoyer l’ancienne sauvegarde locale.', error);
-    }
-  }
-
   window.TravelStorage = {
-    KEY: LEGACY_KEY,
     load,
     save,
     getTrip,
     upsertTrip,
     deleteTrip,
     duplicateTrip,
-    importData,
     reset,
     normalizeTrip,
     normalizeState,
-    createEmptyState,
-    clearLegacyLocalBackup
+    createEmptyState
   };
 })();
