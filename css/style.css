@@ -1086,3 +1086,74 @@ body.dark .auth-mini-grid div {
 .is-cloud-locked .sidebar__footer small {
   color: var(--muted);
 }
+
+.empty-state--action {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  text-align: center;
+}
+.empty-state--action strong { font-size: 1.15rem; color: var(--text); }
+.empty-state--action span { color: var(--muted); }
+
+.auth-landing--simple {
+  min-height: min(600px, calc(100vh - 180px));
+}
+.auth-card--simple {
+  border: 1px solid rgba(37, 99, 235, .16);
+  box-shadow: 0 28px 70px rgba(37, 99, 235, .12);
+}
+.auth-card--simple::after { opacity: .35; }
+.auth-card--simple .eyebrow { margin: 0; }
+.auth-card--simple h2 { margin: 0; }
+.auth-card--simple small { margin-top: -4px; }
+
+.button--cloud span:last-child { min-width: 74px; text-align: left; }
+.button--cloud:not(.is-connected) .cloud-dot { background: var(--warning); }
+
+.cloud-panel--compact {
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+}
+.cloud-panel--compact .panel__header { margin-bottom: 0; }
+.cloud-panel--compact .cloud-status,
+.cloud-panel--compact .cloud-profile-card,
+.cloud-panel--compact .cloud-login-actions,
+.cloud-panel--compact .cloud-danger-zone {
+  margin: 0;
+}
+.cloud-panel--compact .cloud-login-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cloud-panel--compact .button--google {
+  min-width: 240px;
+  justify-content: center;
+}
+.cloud-panel--compact .cloud-danger-zone {
+  margin-top: 4px;
+}
+
+.is-cloud-locked .nav-item:not([data-view-link="dashboard"]) {
+  opacity: .42;
+  pointer-events: none;
+}
+.is-cloud-locked .sidebar__footer .button { display: none; }
+.is-cloud-locked #tripSelector { display: none; }
+.is-cloud-locked #view-dashboard .section-title { display: none; }
+.is-cloud-locked .topbar .eyebrow { display: none; }
+.is-cloud-locked .topbar { align-items: flex-start; }
+
+@media (max-width: 720px) {
+  .cloud-panel--compact .cloud-login-actions,
+  .cloud-panel--compact .cloud-danger-zone {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .cloud-panel--compact .button,
+  .cloud-panel--compact .button--google {
+    width: 100%;
+  }
+}
