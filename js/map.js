@@ -1,379 +1,446 @@
 (function () {
   'use strict';
 
-  let map;
-  let markersLayer;
-  let routeLayer;
-  let activeTypes = new Set();
-  let activeTripId = null;
-  let leafletLoading = false;
-  let leafletLoadTried = false;
-  let resizeObserver;
-  let lastTrip = null;
-  let lastSettings = null;
-  const markerByStepId = new Map();
+  const DEFAULT_CENTER = [46.603354, 1.888334];
+  const DEFAULT_ZOOM = 5;
+  const LEAFLET_CSS_URLS = [
+    'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+    'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'
+  ];
+  const LEAFLET_JS_URLS = [
+    'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'
+  ];
 
-  const leafletFallback = {
-    css: 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css',
-    js: 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js'
-  };
+  let map = null;
+  let markersLayer = null;
+  let routeLayer = null;
+  let tileLayer = null;
+  let activeTypes = new Set();
+  let knownTypesSignature = '';
+  let pendingTrip = null;
+  let pendingSettings = null;
+  let loadingPromise = null;
+  let lastError = '';
 
   const tileLayers = {
     classique: {
       url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      options: { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }
+      options: {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }
     },
     clair: {
       url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-      options: { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors &copy; CARTO' }
+      options: {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+      }
     },
     terrain: {
       url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-      options: { maxZoom: 17, attribution: '&copy; OpenStreetMap contributors &copy; OpenTopoMap' }
+      options: {
+        maxZoom: 17,
+        attribution: '&copy; OpenStreetMap contributors &copy; OpenTopoMap'
+      }
     }
   };
+
+  function getUtils() {
+    return window.TravelUtils || {};
+  }
 
   function getMapElement() {
     return document.getElementById('travelMap');
   }
 
-  function escapeHtml(value) {
-    return window.TravelUtils?.escapeHtml ? window.TravelUtils.escapeHtml(value) : String(value ?? '');
+  function getMapCard() {
+    const element = getMapElement();
+    return element?.closest('.map-card') || element?.parentElement || null;
+  }
+
+  function ensureMapStatus() {
+    const card = getMapCard();
+    if (!card) return null;
+    let status = card.querySelector('#mapStatus');
+    if (!status) {
+      status = document.createElement('div');
+      status.id = 'mapStatus';
+      status.className = 'map-status';
+      status.hidden = true;
+      card.appendChild(status);
+    }
+    return status;
+  }
+
+  function setMapStatus(message, type = 'info') {
+    const status = ensureMapStatus();
+    if (!status) return;
+    if (!message) {
+      status.hidden = true;
+      status.innerHTML = '';
+      status.className = 'map-status';
+      return;
+    }
+    status.hidden = false;
+    status.className = `map-status map-status--${type}`;
+    status.innerHTML = message;
+  }
+
+  function loadCssOnce(url) {
+    if ([...document.styleSheets].some(sheet => sheet.href === url) || document.querySelector(`link[href="${url}"]`)) {
+      return Promise.resolve();
+    }
+    return new Promise(resolve => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = url;
+      link.onload = () => resolve();
+      link.onerror = () => resolve();
+      document.head.appendChild(link);
+    });
+  }
+
+  function loadScript(url) {
+    if (window.L) return Promise.resolve();
+    if (document.querySelector(`script[src="${url}"]`)) {
+      return new Promise((resolve, reject) => {
+        const start = Date.now();
+        const timer = setInterval(() => {
+          if (window.L) {
+            clearInterval(timer);
+            resolve();
+          } else if (Date.now() - start > 6000) {
+            clearInterval(timer);
+            reject(new Error('Leaflet ne répond pas.'));
+          }
+        }, 120);
+      });
+    }
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = url;
+      script.async = true;
+      script.onload = () => window.L ? resolve() : reject(new Error('Leaflet chargé mais indisponible.'));
+      script.onerror = () => reject(new Error(`Chargement impossible : ${url}`));
+      document.head.appendChild(script);
+    });
+  }
+
+  async function ensureLeaflet() {
+    if (window.L) return;
+    if (loadingPromise) return loadingPromise;
+
+    loadingPromise = (async () => {
+      setMapStatus('Chargement de la carte…', 'loading');
+      await Promise.all(LEAFLET_CSS_URLS.map(loadCssOnce));
+
+      let lastLoadError = null;
+      for (const url of LEAFLET_JS_URLS) {
+        try {
+          await loadScript(url);
+          if (window.L) return;
+        } catch (error) {
+          lastLoadError = error;
+        }
+      }
+      throw lastLoadError || new Error('Leaflet ne s’est pas chargé.');
+    })();
+
+    return loadingPromise;
   }
 
   function isMapVisible() {
     const element = getMapElement();
     if (!element) return false;
     const rect = element.getBoundingClientRect();
-    return rect.width > 20 && rect.height > 20 && window.getComputedStyle(element).display !== 'none';
+    return rect.width > 0 && rect.height > 0;
   }
 
-  function showMapMessage(message, tone = '') {
+  async function initMap() {
     const element = getMapElement();
-    if (!element) return;
-    let messageBox = element.querySelector('.map-message');
-    if (!messageBox) {
-      messageBox = document.createElement('div');
-      messageBox.className = 'map-message';
-      element.appendChild(messageBox);
-    }
-    messageBox.className = `map-message ${tone}`.trim();
-    messageBox.innerHTML = `<span>${escapeHtml(message)}</span>`;
-  }
-
-  function clearMapMessage() {
-    const element = getMapElement();
-    if (!element) return;
-    element.querySelectorAll('.map-message').forEach(message => message.remove());
-  }
-
-  function injectLeafletCssFallback() {
-    const existing = [...document.styleSheets].some(sheet => String(sheet.href || '').includes('leaflet'));
-    if (existing || document.querySelector('link[data-leaflet-fallback]')) return;
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = leafletFallback.css;
-    link.dataset.leafletFallback = 'true';
-    document.head.appendChild(link);
-  }
-
-  function loadLeafletFallback() {
-    if (window.L) return Promise.resolve(true);
-    if (leafletLoading) return Promise.resolve(false);
-    leafletLoading = true;
-    leafletLoadTried = true;
-    injectLeafletCssFallback();
-    showMapMessage('Chargement de la carte…');
-
-    return new Promise(resolve => {
-      const script = document.createElement('script');
-      script.src = leafletFallback.js;
-      script.async = true;
-      script.dataset.leafletFallback = 'true';
-      script.onload = () => {
-        leafletLoading = false;
-        if (window.L) {
-          clearMapMessage();
-          requestAnimationFrame(() => {
-            updateMap(lastTrip, lastSettings);
-            invalidate(180);
-          });
-          resolve(true);
-        } else {
-          showMapMessage('La carte ne peut pas se charger pour le moment.', 'is-error');
-          resolve(false);
-        }
-      };
-      script.onerror = () => {
-        leafletLoading = false;
-        showMapMessage('Carte indisponible. Vérifie la connexion internet puis recharge la page.', 'is-error');
-        renderStaticFallback(lastTrip);
-        resolve(false);
-      };
-      document.body.appendChild(script);
-    });
-  }
-
-  function observeResize() {
-    const element = getMapElement();
-    if (!element || resizeObserver) return;
-    resizeObserver = new ResizeObserver(() => invalidate(80));
-    resizeObserver.observe(element);
-  }
-
-  function initMap() {
-    const element = getMapElement();
+    if (!element) return null;
     if (map) {
-      invalidate(80);
-      return true;
-    }
-    if (!element) return false;
-
-    if (!window.L) {
-      if (!leafletLoadTried || !leafletLoading) loadLeafletFallback();
-      return false;
+      invalidate();
+      return map;
     }
 
-    if (!isMapVisible()) {
-      setTimeout(() => {
-        if (!map && isMapVisible()) updateMap(lastTrip, lastSettings);
-      }, 120);
-      return false;
+    try {
+      await ensureLeaflet();
+      if (!window.L) throw new Error('La bibliothèque de carte est indisponible.');
+
+      map = L.map(element, {
+        zoomControl: true,
+        scrollWheelZoom: true,
+        attributionControl: true
+      }).setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+
+      const baseLayers = {};
+      Object.entries(tileLayers).forEach(([name, config]) => {
+        baseLayers[name] = L.tileLayer(config.url, config.options);
+      });
+
+      tileLayer = baseLayers.classique.addTo(map);
+      tileLayer.on('tileerror', () => {
+        setMapStatus('Certaines tuiles de carte ne se chargent pas. La connexion ou le fournisseur de tuiles peut être temporairement indisponible.', 'warning');
+      });
+
+      L.control.layers(baseLayers, null, { position: 'topright' }).addTo(map);
+      markersLayer = L.layerGroup().addTo(map);
+      routeLayer = L.layerGroup().addTo(map);
+      setMapStatus('', 'info');
+      invalidate();
+      return map;
+    } catch (error) {
+      lastError = error.message || 'Carte indisponible.';
+      console.error('[TravelMap]', error);
+      renderFallback(pendingTrip, lastError);
+      return null;
     }
-
-    clearMapMessage();
-    element.innerHTML = '';
-    element.classList.add('is-map-ready');
-
-    map = L.map(element, {
-      zoomControl: true,
-      scrollWheelZoom: true,
-      preferCanvas: true,
-      worldCopyJump: true
-    }).setView([46.6, 2.4], 5);
-
-    const baseLayers = {};
-    Object.entries(tileLayers).forEach(([name, config]) => {
-      baseLayers[name] = L.tileLayer(config.url, config.options);
-    });
-    baseLayers.classique.addTo(map);
-    L.control.layers(baseLayers, null, { position: 'topright' }).addTo(map);
-    markersLayer = L.layerGroup().addTo(map);
-    routeLayer = L.layerGroup().addTo(map);
-    observeResize();
-    invalidate(120);
-    return true;
   }
 
-  function invalidate(delay = 80) {
+  function invalidate() {
     if (!map) return;
-    setTimeout(() => {
-      if (!map) return;
-      map.invalidateSize({ pan: false });
-    }, delay);
+    window.requestAnimationFrame(() => {
+      try {
+        map.invalidateSize(true);
+        setTimeout(() => map.invalidateSize(true), 200);
+      } catch (error) {
+        console.warn('[TravelMap] invalidateSize impossible', error);
+      }
+    });
+  }
+
+  function getValidSteps(trip) {
+    const U = getUtils();
+    const sortSteps = U.sortSteps || (steps => steps || []);
+    const isValidCoord = U.isValidCoord || (step => Number.isFinite(Number(step?.lat)) && Number.isFinite(Number(step?.lng)));
+    return sortSteps(trip?.steps || []).filter(step => isValidCoord(step));
   }
 
   function syncActiveTypes(trip) {
-    const tripId = trip?.id || null;
-    const types = window.TravelUtils.unique((trip?.steps || []).map(step => step.type || 'autre'));
-
+    const U = getUtils();
+    const unique = U.unique || (values => [...new Set(values.filter(Boolean))]);
+    const types = unique((trip?.steps || []).map(step => step.type || 'étape'));
+    const signature = types.join('|');
     if (!types.length) {
       activeTypes = new Set();
-      activeTripId = tripId;
+      knownTypesSignature = '';
       return types;
     }
-
-    if (activeTripId !== tripId || !activeTypes.size) {
+    if (!knownTypesSignature || knownTypesSignature !== signature) {
       activeTypes = new Set(types);
-      activeTripId = tripId;
+      knownTypesSignature = signature;
       return types;
     }
-
-    const currentTypes = new Set(types);
-    activeTypes = new Set([...activeTypes].filter(type => currentTypes.has(type)));
-    types.forEach(type => activeTypes.add(type));
-    if (!activeTypes.size) activeTypes = new Set(types);
+    types.forEach(type => {
+      if (!activeTypes.has(type) && !knownTypesSignature.includes(type)) activeTypes.add(type);
+    });
     return types;
   }
 
-  function getSortedValidSteps(trip) {
-    return window.TravelUtils
-      .sortSteps(trip?.steps || [])
-      .filter(step => window.TravelUtils.isValidCoord(step));
-  }
-
-  function updateMap(trip, settings) {
-    lastTrip = trip || null;
-    lastSettings = settings || null;
+  async function updateMap(trip, settings) {
+    pendingTrip = trip || null;
+    pendingSettings = settings || null;
     syncActiveTypes(trip);
 
-    if (!trip) {
-      renderStaticFallback(null, 'Sélectionne ou crée un voyage pour afficher la carte.');
-      return;
-    }
+    const mapInstance = await initMap();
+    if (!mapInstance) return;
+    drawTrip(trip);
+  }
 
-    const allValidSteps = getSortedValidSteps(trip);
-    if (!allValidSteps.length) {
-      renderStaticFallback(trip, 'Ajoute au moins une étape avec une adresse ou des coordonnées GPS.');
-      return;
-    }
+  function drawTrip(trip) {
+    if (!map || !markersLayer || !routeLayer) return;
+    const U = getUtils();
+    const escapeHtml = U.escapeHtml || (value => String(value ?? ''));
+    const formatDate = U.formatDate || (value => value || '');
+    const isValidCoord = U.isValidCoord || (step => Number.isFinite(Number(step?.lat)) && Number.isFinite(Number(step?.lng)));
 
-    if (!initMap()) {
-      renderStaticFallback(trip, leafletLoading ? 'Chargement de la carte…' : 'Carte en attente de chargement.');
-      return;
-    }
-    if (!markersLayer || !routeLayer) return;
-
-    clearMapMessage();
     markersLayer.clearLayers();
     routeLayer.clearLayers();
-    markerByStepId.clear();
 
-    const selected = allValidSteps.filter(step => !activeTypes.size || activeTypes.has(step.type || 'autre'));
-    const coordinates = selected.map(step => [Number(step.lat), Number(step.lng)]);
-
-    if (!selected.length) {
-      showMapMessage('Toutes les catégories sont masquées.', 'is-muted');
+    const steps = getValidSteps(trip);
+    if (!steps.length) {
+      map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+      setMapStatus('Ajoute au moins une étape avec une adresse ou des coordonnées pour afficher la carte du voyage.', 'empty');
       return;
     }
 
+    const selected = steps.filter(step => !activeTypes.size || activeTypes.has(step.type || 'étape'));
+    if (!selected.length) {
+      setMapStatus('Toutes les catégories sont masquées. Active au moins un filtre pour afficher les marqueurs.', 'empty');
+      return;
+    }
+
+    setMapStatus('', 'info');
+
+    const coordinates = selected.map(step => [Number(step.lat), Number(step.lng)]);
     selected.forEach((step, index) => {
+      if (!isValidCoord(step)) return;
       const marker = L.marker([Number(step.lat), Number(step.lng)], {
         icon: L.divIcon({
-          className: '',
-          html: `<div class="custom-marker" style="background:${step.color || '#2563eb'}"><span>${index + 1}</span></div>`,
-          iconSize: [30, 30],
-          iconAnchor: [15, 30],
-          popupAnchor: [0, -28]
+          className: 'custom-marker-wrap',
+          html: `<div class="custom-marker" style="background:${escapeHtml(step.color || '#2563eb')}"><span>${index + 1}</span></div>`,
+          iconSize: [34, 34],
+          iconAnchor: [17, 34],
+          popupAnchor: [0, -30]
         })
       });
       marker.bindPopup(`
-        <strong>${escapeHtml(step.name)}</strong><br>
-        ${escapeHtml(step.type || 'étape')} · ${escapeHtml(step.priority || '')}<br>
-        ${step.arrivalDate ? window.TravelUtils.formatDate(step.arrivalDate) : ''}
+        <strong>${escapeHtml(step.name || 'Étape')}</strong><br>
+        ${escapeHtml(step.type || 'étape')} ${step.priority ? `· ${escapeHtml(step.priority)}` : ''}<br>
+        ${step.arrivalDate ? formatDate(step.arrivalDate) : ''}
         ${step.address ? `<p>${escapeHtml(step.address)}</p>` : ''}
         ${step.notes ? `<p>${escapeHtml(step.notes)}</p>` : ''}
       `);
       marker.addTo(markersLayer);
-      markerByStepId.set(step.id, marker);
     });
 
     if (coordinates.length >= 2) {
-      L.polyline(coordinates, { weight: 4, opacity: 0.85, dashArray: '8 8' }).addTo(routeLayer);
+      L.polyline(coordinates, {
+        weight: 4,
+        opacity: 0.85,
+        dashArray: '8 8',
+        lineCap: 'round',
+        lineJoin: 'round'
+      }).addTo(routeLayer);
     }
 
     fitBounds();
-    invalidate(180);
-  }
-
-  function renderStaticFallback(trip, message = '') {
-    const element = getMapElement();
-    if (!element || map) return;
-    const steps = getSortedValidSteps(trip);
-    const stepList = steps.length
-      ? `<div class="static-map-list">${steps.map((step, index) => `
-          <button type="button" data-static-focus-step="${escapeHtml(step.id)}">
-            <strong>${index + 1}. ${escapeHtml(step.name)}</strong>
-            <small>${escapeHtml(step.address || `${Number(step.lat).toFixed(5)}, ${Number(step.lng).toFixed(5)}`)}</small>
-          </button>
-        `).join('')}</div>`
-      : '';
-    element.innerHTML = `
-      <div class="static-map-fallback">
-        <div class="static-map-fallback__route"></div>
-        <div class="static-map-fallback__content">
-          <div class="map-message ${message.includes('indisponible') ? 'is-error' : ''}">${escapeHtml(message || 'Carte en cours de préparation.')}</div>
-          ${stepList}
-        </div>
-      </div>
-    `;
-    element.querySelectorAll('[data-static-focus-step]').forEach(button => {
-      button.addEventListener('click', () => {
-        const step = steps.find(item => item.id === button.dataset.staticFocusStep);
-        if (step) focusStep(step);
-      });
-    });
+    invalidate();
   }
 
   function fitBounds() {
     if (!map || !markersLayer) return;
     const layers = markersLayer.getLayers();
-    if (!layers.length) return;
-    const group = L.featureGroup(layers);
-    const bounds = group.getBounds();
-    if (!bounds.isValid()) return;
+    if (!layers.length) {
+      map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+      return;
+    }
     if (layers.length === 1) {
       const latLng = layers[0].getLatLng();
       map.setView(latLng, 12, { animate: true });
       return;
     }
-    map.fitBounds(bounds.pad(0.25), { animate: true, maxZoom: 13 });
+    const group = L.featureGroup(layers);
+    map.fitBounds(group.getBounds().pad(0.25), { animate: true, maxZoom: 12 });
   }
 
-  function focusStep(step) {
-    if (!step || !window.TravelUtils.isValidCoord(step)) return;
-    if (!initMap()) {
-      lastTrip = lastTrip || null;
-      return;
-    }
-    const latLng = [Number(step.lat), Number(step.lng)];
-    map.setView(latLng, 13, { animate: true });
-    setTimeout(() => markerByStepId.get(step.id)?.openPopup(), 150);
+  function renderFallback(trip, reason) {
+    const steps = getValidSteps(trip);
+    const U = getUtils();
+    const escapeHtml = U.escapeHtml || (value => String(value ?? ''));
+    const status = ensureMapStatus();
+    if (!status) return;
+    status.hidden = false;
+    status.className = 'map-status map-status--error map-status--fallback';
+
+    const links = steps.map((step, index) => {
+      const url = `https://www.openstreetmap.org/?mlat=${encodeURIComponent(step.lat)}&mlon=${encodeURIComponent(step.lng)}#map=13/${encodeURIComponent(step.lat)}/${encodeURIComponent(step.lng)}`;
+      return `<a href="${url}" target="_blank" rel="noopener">${index + 1}. ${escapeHtml(step.name || 'Étape')}</a>`;
+    }).join('');
+
+    status.innerHTML = `
+      <strong>Carte indisponible</strong>
+      <p>${escapeHtml(reason || 'Le module Leaflet ou les tuiles OpenStreetMap ne se chargent pas.')}</p>
+      ${steps.length ? `<div class="map-fallback-links">${links}</div>` : '<p>Ajoute une étape avec coordonnées pour générer les liens carte.</p>'}
+    `;
   }
 
   function renderFilters(container, trip, onToggle) {
     if (!container) return;
+    const U = getUtils();
+    const escapeHtml = U.escapeHtml || (value => String(value ?? ''));
     const types = syncActiveTypes(trip);
+
     if (!types.length) {
       container.innerHTML = '<span class="chip">aucune catégorie</span>';
       return;
     }
-    container.innerHTML = types.map(type => `<button class="chip ${activeTypes.has(type) ? '' : 'is-muted'}" data-map-type="${escapeHtml(type)}">${escapeHtml(type)}</button>`).join('');
+
+    container.innerHTML = types.map(type => `<button type="button" class="chip ${activeTypes.has(type) ? '' : 'is-muted'}" data-map-type="${escapeHtml(type)}">${escapeHtml(type)}</button>`).join('');
     container.querySelectorAll('[data-map-type]').forEach(button => {
       button.addEventListener('click', () => {
         const type = button.dataset.mapType;
         if (activeTypes.has(type)) activeTypes.delete(type);
         else activeTypes.add(type);
         if (!activeTypes.size) types.forEach(item => activeTypes.add(item));
-        onToggle?.();
+        if (typeof onToggle === 'function') onToggle();
       });
     });
   }
 
   function renderMapSteps(container, trip) {
     if (!container) return;
-    const steps = window.TravelUtils.sortSteps(trip?.steps || []);
+    const U = getUtils();
+    const sortSteps = U.sortSteps || (steps => steps || []);
+    const isValidCoord = U.isValidCoord || (step => Number.isFinite(Number(step?.lat)) && Number.isFinite(Number(step?.lng)));
+    const escapeHtml = U.escapeHtml || (value => String(value ?? ''));
+    const steps = sortSteps(trip?.steps || []);
+
     if (!steps.length) {
       container.innerHTML = '<div class="empty-state">Aucune étape à afficher sur la carte.</div>';
       return;
     }
+
     container.innerHTML = steps.map((step, index) => `
-      <button class="map-step" data-focus-step="${escapeHtml(step.id)}">
-        <strong>${index + 1}. ${escapeHtml(step.name)}</strong>
-        <small>${escapeHtml(step.type || 'étape')} · ${escapeHtml(step.address || (window.TravelUtils.isValidCoord(step) ? `${step.lat}, ${step.lng}` : 'coordonnées manquantes'))}</small>
+      <button type="button" class="map-step" data-focus-step="${escapeHtml(step.id)}">
+        <strong>${index + 1}. ${escapeHtml(step.name || 'Étape')}</strong>
+        <small>${escapeHtml(step.type || 'étape')} · ${escapeHtml(step.address || (isValidCoord(step) ? `${step.lat}, ${step.lng}` : 'coordonnées manquantes'))}</small>
       </button>
     `).join('');
+
     container.querySelectorAll('[data-focus-step]').forEach(button => {
-      button.addEventListener('click', () => {
+      button.addEventListener('click', async () => {
         const step = steps.find(item => item.id === button.dataset.focusStep);
-        focusStep(step);
+        if (!step || !isValidCoord(step)) return;
+        await initMap();
+        if (map) {
+          map.setView([Number(step.lat), Number(step.lng)], 13, { animate: true });
+        } else {
+          const url = `https://www.openstreetmap.org/?mlat=${encodeURIComponent(step.lat)}&mlon=${encodeURIComponent(step.lng)}#map=13/${encodeURIComponent(step.lat)}/${encodeURIComponent(step.lng)}`;
+          window.open(url, '_blank', 'noopener');
+        }
       });
+    });
+  }
+
+  function activate() {
+    initMap().then(() => {
+      invalidate();
+      if (pendingTrip) drawTrip(pendingTrip);
     });
   }
 
   function resetFilters() {
     activeTypes = new Set();
-    activeTripId = null;
+    knownTypesSignature = '';
+  }
+
+  function getDiagnostics() {
+    const element = getMapElement();
+    const rect = element?.getBoundingClientRect();
+    return {
+      leafletLoaded: Boolean(window.L),
+      mapCreated: Boolean(map),
+      containerFound: Boolean(element),
+      containerWidth: rect ? Math.round(rect.width) : 0,
+      containerHeight: rect ? Math.round(rect.height) : 0,
+      visible: isMapVisible(),
+      lastError
+    };
   }
 
   window.TravelMap = {
     initMap,
+    activate,
     updateMap,
     invalidate,
     fitBounds,
-    focusStep,
     renderFilters,
     renderMapSteps,
-    resetFilters
+    resetFilters,
+    getDiagnostics
   };
 })();

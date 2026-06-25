@@ -7,7 +7,6 @@
   const Itinerary = window.TravelItinerary;
   const Suggestions = window.TravelSuggestions;
   const MapView = window.TravelMap;
-  const Geocoder = window.TravelGeocoder;
   const CloudSync = window.TravelCloudSync;
 
   let state = Storage.load();
@@ -90,52 +89,18 @@
     on('addExpenseBtn', 'click', () => openExpenseDialog());
     on('expenseForm', 'submit', saveExpenseForm);
     on('fitMapBtn', 'click', MapView.fitBounds);
+    on('mapDiagBtn', 'click', showMapDiagnostics);
     on('refreshItineraryBtn', 'click', () => renderItinerary());
     on('optimizeBtn', 'click', optimizeActiveTrip);
     on('addChecklistItemBtn', 'click', addChecklistItem);
     on('saveSettingsBtn', 'click', saveSettings);
     on('deleteCloudDataBtn', 'click', deleteCloudData);
     bindCloudActions();
-    bindStepSearch();
     window.addEventListener('resize', () => MapView.invalidate());
     $$('[data-close-dialog]').forEach(button => button.addEventListener('click', () => {
       const dialog = document.getElementById(button.dataset.closeDialog);
       if (dialog?.open) dialog.close('cancel');
     }));
-  }
-
-
-  function bindStepSearch() {
-    if (!Geocoder?.attachStepSearch) return;
-    const form = $('#stepForm');
-    Geocoder.attachStepSearch({
-      input: $('#placeSearchInput'),
-      button: $('#placeSearchBtn'),
-      resultsContainer: $('#placeSearchResults'),
-      statusElement: $('#placeSearchStatus'),
-      getContext: () => {
-        const trip = activeTrip();
-        return {
-          area: trip?.area || trip?.name || '',
-          steps: U.sortSteps(trip?.steps || []).filter(U.isValidCoord)
-        };
-      },
-      onSelect: place => {
-        if (!form) return;
-        form.elements.name.value = place.name || form.elements.name.value;
-        form.elements.address.value = place.address || place.displayName || '';
-        form.elements.lat.value = Number(place.lat).toFixed(6);
-        form.elements.lng.value = Number(place.lng).toFixed(6);
-        if ([...form.elements.type.options].some(option => option.value === place.type)) {
-          form.elements.type.value = place.type;
-        }
-        if (place.type === 'ville') form.elements.color.value = '#2563eb';
-        if (place.type === 'hôtel') form.elements.color.value = '#7c3aed';
-        if (place.type === 'restaurant') form.elements.color.value = '#f97316';
-        if (place.type === 'gare' || place.type === 'aéroport') form.elements.color.value = '#0891b2';
-        if (place.type === 'activité') form.elements.color.value = '#16a34a';
-      }
-    });
   }
 
   function switchView(view) {
@@ -147,15 +112,9 @@
     $$('.nav-item').forEach(item => item.classList.toggle('is-active', item.dataset.viewLink === view));
     $('#pageTitle').textContent = titles[view];
     if (view === 'map') {
-      requestAnimationFrame(() => {
-        MapView.initMap();
-        renderMap();
-        MapView.invalidate(120);
-        setTimeout(() => {
-          renderMap();
-          MapView.invalidate(300);
-        }, 260);
-      });
+      MapView.activate?.();
+      renderMap();
+      MapView.invalidate();
     }
     if (view === 'budget') renderBudget();
     if (view === 'suggestions') renderSuggestions();
@@ -219,23 +178,21 @@
 
   function renderDashboard() {
     const grid = $('#tripsGrid');
-    const focus = $('#dashboardFocus');
     const user = CloudSync?.getUser();
 
-    if (focus) focus.innerHTML = '';
-
     if (cloudLoading) {
-      grid.innerHTML = '<div class="empty-state">Chargement…</div>';
+      grid.innerHTML = '<div class="empty-state">Chargement de Firebase…</div>';
       return;
     }
 
     if (!user || !appReady) {
       grid.innerHTML = `
-        <div class="login-gate login-gate--simple">
-          <div class="login-gate__icon">✈️</div>
-          <h2>Connecte-toi pour organiser tes voyages</h2>
-          <p>Un compte Google suffit. Tes itinéraires se chargent automatiquement sur tous tes appareils.</p>
-          <button class="button button--primary button--large" id="dashboardSignInBtn">Continuer avec Google</button>
+        <div class="login-gate">
+          <div class="login-gate__icon">☁️</div>
+          <h2>Connexion Google requise</h2>
+          <p>Tes voyages sont maintenant stockés uniquement dans Firebase. Connecte-toi pour charger automatiquement tes données et synchroniser chaque modification.</p>
+          <button class="button button--primary" id="dashboardSignInBtn">Se connecter avec Google</button>
+          <small>Le site n’utilise plus de sauvegarde locale de voyages ni d’export JSON.</small>
         </div>
       `;
       document.getElementById('dashboardSignInBtn')?.addEventListener('click', handleCloudSignIn);
@@ -243,43 +200,14 @@
     }
 
     if (!state.trips.length) {
-      grid.innerHTML = '<div class="empty-state">Aucun voyage pour ce compte. Crée ton premier itinéraire.</div>';
+      grid.innerHTML = '<div class="empty-state">Aucun voyage dans Firebase pour ce compte. Crée ton premier itinéraire ou charge l’exemple.</div>';
       return;
-    }
-
-    const active = activeTrip() || state.trips[0];
-    if (focus && active) {
-      const budget = Budget.computeBudget(active);
-      const itineraryTotals = Itinerary.totals(active, state.settings);
-      const days = U.tripDuration(active);
-      focus.innerHTML = `
-        <article class="focus-trip-card">
-          <div class="focus-trip-card__main">
-            <span class="badge">${U.escapeHtml(active.status || 'brouillon')}</span>
-            <h2>${U.escapeHtml(active.name)}</h2>
-            <p>${U.escapeHtml(active.area || 'Zone à préciser')} · ${U.formatDate(active.startDate)} → ${U.formatDate(active.endDate)}</p>
-          </div>
-          <div class="focus-trip-card__stats">
-            <div><strong>${days}</strong><span>jour(s)</span></div>
-            <div><strong>${active.steps.length}</strong><span>étape(s)</span></div>
-            <div><strong>${U.formatDistance(itineraryTotals.distance)}</strong><span>distance</span></div>
-            <div><strong>${U.formatMoney(budget.total, active.currency)}</strong><span>budget</span></div>
-          </div>
-          <div class="focus-trip-card__actions">
-            <button class="button button--primary" data-focus-view="itinerary">Planning</button>
-            <button class="button" data-focus-view="map">Carte</button>
-            <button class="button" data-focus-view="budget">Budget</button>
-          </div>
-        </article>
-      `;
-      focus.querySelectorAll('[data-focus-view]').forEach(button => button.addEventListener('click', () => switchView(button.dataset.focusView)));
     }
 
     grid.innerHTML = state.trips.map(trip => {
       const budget = Budget.computeBudget(trip);
-      const totals = Itinerary.totals(trip, state.settings);
       return `
-        <article class="trip-card trip-card--compact">
+        <article class="trip-card">
           <div class="trip-card__top">
             <div>
               <span class="badge">${U.escapeHtml(trip.status)}</span>
@@ -287,14 +215,14 @@
             </div>
             <span>${trip.steps.length} étape(s)</span>
           </div>
-          <p>${U.escapeHtml(trip.description || trip.area || 'Itinéraire à compléter.')}</p>
+          <p>${U.escapeHtml(trip.description || 'Aucune description pour le moment.')}</p>
           <div class="trip-card__meta">
             <span>📅 ${U.formatDate(trip.startDate)} → ${U.formatDate(trip.endDate)}</span>
-            <span>🗺️ ${U.formatDistance(totals.distance)}</span>
+            <span>🌍 ${U.escapeHtml(trip.area || 'zone non renseignée')}</span>
             <span>💶 ${U.formatMoney(budget.total, trip.currency)}${trip.maxBudget ? ` / ${U.formatMoney(trip.maxBudget, trip.currency)}` : ''}</span>
           </div>
           <div class="trip-card__actions">
-            <button class="button button--primary" data-open-trip="${trip.id}">Ouvrir</button>
+            <button class="button button--primary" data-open-trip="${trip.id}">Modifier</button>
             <button class="button" data-duplicate-trip="${trip.id}">Dupliquer</button>
             <button class="button" data-delete-trip="${trip.id}">Supprimer</button>
           </div>
@@ -307,7 +235,7 @@
       state = Storage.save(state);
       renderAll();
       scheduleCloudAutosave();
-      switchView('itinerary');
+      switchView('trip');
     }));
     grid.querySelectorAll('[data-duplicate-trip]').forEach(button => button.addEventListener('click', () => {
       if (!requireCloudReady()) return;
@@ -428,7 +356,6 @@
           <span class="badge">${U.escapeHtml(step.type)} · ${U.escapeHtml(step.priority)}</span>
           <h3>${U.escapeHtml(step.name)}</h3>
           <p>${U.formatDate(step.arrivalDate)} → ${U.formatDate(step.departureDate)} · ${U.isValidCoord(step) ? `${step.lat}, ${step.lng}` : 'coordonnées manquantes'}${step.cost ? ` · ${U.formatMoney(step.cost, trip.currency)}` : ''}</p>
-          ${step.address ? `<p>${U.escapeHtml(step.address)}</p>` : ''}
           ${step.notes ? `<p>${U.escapeHtml(step.notes)}</p>` : ''}
         </div>
         <div class="row-actions">
@@ -444,7 +371,7 @@
     list.querySelectorAll('[data-move-step]').forEach(button => button.addEventListener('click', () => moveStep(button.dataset.stepId, button.dataset.moveStep)));
   }
 
-  function openStepDialog(stepId = null, defaults = {}) {
+  function openStepDialog(stepId = null) {
     const trip = activeTrip();
     if (!trip) return showStatus('Crée d’abord un voyage.');
     const form = $('#stepForm');
@@ -454,15 +381,10 @@
     form.elements.id.value = step?.id || '';
     form.elements.name.value = step?.name || '';
     form.elements.type.value = step?.type || 'ville';
-    form.elements.address.value = step?.address || '';
-    form.elements.placeSearch.value = '';
-    $('#placeSearchStatus').textContent = '';
-    $('#placeSearchResults').innerHTML = '';
-    $('#placeSearchResults').hidden = true;
     form.elements.lat.value = step?.lat ?? '';
     form.elements.lng.value = step?.lng ?? '';
-    form.elements.arrivalDate.value = step?.arrivalDate || defaults.arrivalDate || '';
-    form.elements.departureDate.value = step?.departureDate || defaults.departureDate || defaults.arrivalDate || '';
+    form.elements.arrivalDate.value = step?.arrivalDate || '';
+    form.elements.departureDate.value = step?.departureDate || '';
     form.elements.duration.value = step?.duration || '';
     form.elements.cost.value = step?.cost || '';
     form.elements.priority.value = step?.priority || 'optionnel';
@@ -487,7 +409,6 @@
       order: existing?.order ?? trip.steps.length,
       name: String(data.get('name') || 'Étape'),
       type: String(data.get('type') || 'ville'),
-      address: String(data.get('address') || ''),
       lat: data.get('lat') === '' ? '' : Number(data.get('lat')),
       lng: data.get('lng') === '' ? '' : Number(data.get('lng')),
       arrivalDate: String(data.get('arrivalDate') || ''),
@@ -542,14 +463,6 @@
   function renderItinerary() {
     const trip = activeTrip();
     Itinerary.renderSummary($('#itinerarySummary'), trip, state.settings);
-    Itinerary.renderDayPlanner($('#dayPlannerBoard'), trip, state.settings, {
-      editStep: stepId => openStepDialog(stepId),
-      addStep: date => openStepDialog(null, { arrivalDate: date, departureDate: date }),
-      openMap: stepId => {
-        switchView('map');
-        setTimeout(() => MapView.focusStep(stepId), 220);
-      }
-    });
     Itinerary.renderItinerary($('#itineraryList'), trip, state.settings, (stepId, field, value) => {
       const current = activeTrip();
       const step = current?.steps.find(item => item.id === stepId);
@@ -745,15 +658,28 @@
   }
 
   function renderMap() {
+    if (!MapView) return;
     const trip = activeTrip();
     MapView.renderFilters($('#mapFilters'), trip, () => renderMap());
     MapView.renderMapSteps($('#mapStepsList'), trip);
     if (currentView === 'map') {
-      requestAnimationFrame(() => {
-        MapView.updateMap(trip, state.settings);
-        MapView.invalidate(180);
-      });
+      MapView.updateMap(trip, state.settings);
     }
+  }
+
+
+  function showMapDiagnostics() {
+    const diagnostic = MapView?.getDiagnostics?.();
+    if (!diagnostic) {
+      showStatus('Diagnostic carte indisponible.');
+      return;
+    }
+    const details = [
+      diagnostic.leafletLoaded ? 'Leaflet chargé' : 'Leaflet non chargé',
+      diagnostic.mapCreated ? 'carte créée' : 'carte non créée',
+      diagnostic.containerFound ? `zone ${diagnostic.containerWidth}×${diagnostic.containerHeight}px` : 'zone carte introuvable'
+    ].join(' · ');
+    showStatus(`Carte : ${details}${diagnostic.lastError ? ` · ${diagnostic.lastError}` : ''}`);
   }
 
   function bindCloudActions() {
@@ -770,7 +696,7 @@
   async function initCloudSync() {
     if (!CloudSync) {
       cloudLoading = false;
-      showStatus('Module de connexion introuvable.');
+      showStatus('Module Firebase introuvable.');
       renderAll();
       return;
     }
@@ -783,7 +709,7 @@
         appReady = false;
         updateCloudUi({ status: error.message });
         renderAll();
-        showStatus(error.message || 'Chargement impossible.');
+        showStatus(error.message || 'Chargement Firebase impossible.');
       });
     });
 
@@ -791,7 +717,7 @@
       if (!CloudSync.isConfigured()) {
         cloudLoading = false;
         appReady = false;
-        updateCloudUi({ configured: false, status: 'Configuration Google manquante.' });
+        updateCloudUi({ configured: false, status: 'Firebase n’est pas configuré dans js/firebase-config.js.' });
         renderAll();
         return;
       }
@@ -803,7 +729,7 @@
       appReady = false;
       updateCloudUi({ status: error.message, configured: false });
       renderAll();
-      showStatus(error.message || 'Connexion impossible.');
+      showStatus(error.message || 'Initialisation Firebase impossible.');
     }
   }
 
@@ -839,7 +765,7 @@
     applyTheme(state.settings.theme || 'light');
     renderAll();
     updateCloudUi({ user, status: CloudSync.getStatus(), configured: true });
-    showStatus('Voyages chargés.');
+    showStatus('Voyages chargés depuis Firebase. Sauvegarde automatique active.');
   }
 
   function updateCloudUi(payload = {}) {
@@ -857,11 +783,11 @@
     const signOutBtn = document.getElementById('cloudSignOutBtn');
     const deleteCloudBtn = document.getElementById('deleteCloudDataBtn');
     const syncMeta = document.getElementById('cloudSyncMeta');
-    const protectedControls = ['newTripBtn', 'createFirstTripBtn', 'tripSelector', 'saveSettingsBtn'];
+    const protectedControls = ['newTripBtn', 'createFirstTripBtn', 'loadDemoBtn', 'tripSelector', 'saveSettingsBtn'];
 
     document.body.classList.toggle('is-cloud-locked', !appReady || !user);
 
-    if (statusEl) statusEl.textContent = status || (configured ? 'Connexion Google requise.' : 'Configuration Google manquante.');
+    if (statusEl) statusEl.textContent = status || (configured ? 'Connexion Google requise.' : 'Firebase non configuré.');
     if (profile) profile.hidden = !user;
     if (avatar && user) avatar.src = user.photoURL || '';
     if (name && user) name.textContent = user.displayName || 'Compte Google';
@@ -873,7 +799,7 @@
     }
     if (signOutBtn) signOutBtn.disabled = !user;
     if (deleteCloudBtn) deleteCloudBtn.disabled = !user || !appReady;
-    if (syncMeta) syncMeta.textContent = cloudLastSavedAt ? `Dernière sauvegarde : ${U.formatDate(cloudLastSavedAt)} ${new Date(cloudLastSavedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : 'Sauvegarde automatique après connexion.';
+    if (syncMeta) syncMeta.textContent = cloudLastSavedAt ? `Dernière sauvegarde : ${U.formatDate(cloudLastSavedAt)} ${new Date(cloudLastSavedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : 'Sauvegarde Firebase automatique active après connexion.';
 
     protectedControls.forEach(id => {
       const element = document.getElementById(id);
@@ -884,7 +810,7 @@
   async function handleCloudAuth() {
     if (!CloudSync?.isConfigured()) {
       switchView('settings');
-      showStatus('Configuration Google manquante.');
+      showStatus('Firebase doit être renseigné dans js/firebase-config.js.');
       return;
     }
     if (CloudSync.getUser()) {
@@ -903,7 +829,7 @@
     } catch (error) {
       console.error(error);
       cloudLoading = false;
-      showStatus(error.message || 'Connexion impossible.');
+      showStatus(error.message || 'Connexion Google impossible.');
       updateCloudUi({ status: error.message });
       renderAll();
     }
@@ -933,18 +859,18 @@
       await CloudSync.saveState(savedState);
       cloudLastSavedAt = new Date().toISOString();
       updateCloudUi({ status: CloudSync.getStatus() });
-      if (!silent) showStatus('Sauvegardé.');
+      if (!silent) showStatus('Sauvegardé dans Firebase.');
     } catch (error) {
       console.error(error);
       updateCloudUi({ status: error.message });
-      if (!silent) showStatus(error.message || 'Sauvegarde impossible.');
+      if (!silent) showStatus(error.message || 'Sauvegarde Firebase impossible.');
     }
   }
 
   function scheduleCloudAutosave(delay = 650) {
     if (!appReady || !CloudSync?.getUser()) return;
     clearTimeout(cloudAutosaveTimer);
-    updateCloudUi({ status: 'Sauvegarde…' });
+    updateCloudUi({ status: 'Sauvegarde Firebase en attente…' });
     cloudAutosaveTimer = setTimeout(() => saveCloudStateNow(true), delay);
   }
 
@@ -955,18 +881,18 @@
 
   async function deleteCloudData() {
     if (!requireCloudReady()) return;
-    const ok = await confirmAction('Supprimer tous les voyages ?', 'Tous les voyages de ce compte Google seront supprimés. Cette action est définitive.');
+    const ok = await confirmAction('Supprimer toutes les données Firebase ?', 'Tous les voyages de ce compte Google seront supprimés de Firestore. Cette action est définitive.');
     if (!ok) return;
     try {
       await CloudSync.deleteState();
       state = Storage.createEmptyState();
       appReady = true;
       renderAll();
-      updateCloudUi({ status: 'Données supprimées. Tu peux créer un nouveau voyage.' });
-      showStatus('Données supprimées.');
+      updateCloudUi({ status: 'Données Firebase supprimées. Tu peux créer un nouveau voyage.' });
+      showStatus('Données Firebase supprimées.');
     } catch (error) {
       console.error(error);
-      showStatus(error.message || 'Suppression impossible.');
+      showStatus(error.message || 'Suppression Firebase impossible.');
     }
   }
 
