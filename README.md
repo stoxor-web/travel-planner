@@ -1,83 +1,68 @@
-# Travel Planner
+# Travel Planner — V4 Application voyage
 
-Application web personnelle de planification de voyages, hébergeable sur GitHub Pages, avec connexion Google et sauvegarde automatique Firebase.
+Application web personnelle de planification de voyages, hébergeable sur GitHub Pages et synchronisée avec Firebase via connexion Google.
 
-## Version actuelle
+## Nouveautés V4
 
-Cette version utilise Firebase comme source principale des données :
-
-- connexion Google obligatoire ;
-- chargement automatique des voyages depuis Firestore ;
-- sauvegarde transparente après modification ;
-- aucune sauvegarde locale visible ;
-- aucun export/import JSON dans l’interface ;
-- carte OSM intégrée sans Leaflet pour éviter les problèmes de tuiles cassées ;
-- affichage des trajets point par point avec transport différent pour chaque segment : avion, voiture, train, bus, marche, vélo, bateau ou autre ;
-- planning jour par jour inspiré des planificateurs visuels de voyage.
-
-## Carte
-
-La carte ne dépend plus de Leaflet. Elle utilise un rendu OSM léger développé directement dans `js/map.js` :
-
-- récupération des tuiles OpenStreetMap ;
-- placement manuel des tuiles ;
-- marqueurs numérotés ;
-- lignes entre les étapes ;
-- ligne courbe pour l’avion ;
-- styles différents selon le transport ;
-- zoom, recentrage et déplacement à la souris ou au doigt ;
-- ouverture d’un segment dans OpenStreetMap.
-
-Cette approche évite le bug où les tuiles Leaflet apparaissaient décalées ou superposées.
-
-## Fichiers principaux
-
-```text
-travel-planner/
-├── index.html
-├── README.md
-├── firestore.rules
-├── css/
-│   └── style.css
-├── js/
-│   ├── app.js
-│   ├── budget.js
-│   ├── firebase-config.js
-│   ├── firebase-sync.js
-│   ├── geocoder.js
-│   ├── itinerary.js
-│   ├── map.js
-│   ├── storage.js
-│   ├── suggestions.js
-│   └── utils.js
-└── assets/
-```
+- Création de voyage guidée avec assistant.
+- Accueil plus moderne avec voyage actif, score, budget et accès rapides.
+- Cartes voyages plus visuelles.
+- Planning jour par jour plus central.
+- Ajout rapide d’éléments dans une journée : ville, hôtel, restaurant, activité, gare, aéroport.
+- Trajets point par point avec transport, horaires, référence, coût et note.
+- Carte OSM simplifiée et stable, sans dépendre de Leaflet.
+- Assistant de cohérence avec score de préparation.
+- Budget prévu/réel.
+- Budget par jour.
+- Budget par personne.
+- Répartition des dépenses par prénom.
+- Carnet de voyage enrichi par étape.
+- Expérience mobile améliorée.
+- Partage public en lecture seule via lien Firebase.
 
 ## Firebase
 
-Le fichier `js/firebase-config.js` doit contenir la vraie configuration Firebase du projet.
+Le site utilise :
 
-Les règles Firestore sont fournies dans `firestore.rules`.
+- Firebase Authentication avec Google ;
+- Cloud Firestore pour sauvegarder les voyages ;
+- une collection privée `travelPlannerUsers/{uid}` ;
+- une collection publique en lecture seule `publicTrips/{shareId}` pour les liens partagés.
+
+Le fichier à conserver avec tes vraies clés est :
+
+```text
+js/firebase-config.js
+```
+
+Aucun fichier `firebase-config.example` n’est nécessaire.
+
+## Règles Firestore
+
+Copie le contenu de `firestore.rules` dans Firebase Console → Firestore Database → Rules.
+
+Ces règles permettent :
+
+- à chaque utilisateur connecté de lire/écrire uniquement son propre document ;
+- à un lien de partage de lire seulement les voyages publiés dans `publicTrips` ;
+- au propriétaire connecté de créer, mettre à jour ou supprimer ses partages.
 
 ## Publication GitHub Pages
 
-1. Remplacer les fichiers du dépôt par ceux de cette version.
-2. Vérifier que `js/firebase-config.js` contient bien la configuration Firebase réelle.
-3. Publier sur GitHub Pages.
-4. Ouvrir le site, se connecter avec Google et tester un voyage avec plusieurs étapes.
+1. Remplace les fichiers du dépôt GitHub par ceux de cette archive.
+2. Garde ton `js/firebase-config.js` configuré.
+3. Publie sur GitHub Pages.
+4. Ouvre le site.
+5. Connecte-toi avec Google.
+6. Crée un voyage avec l’assistant.
 
-## Test conseillé
+## Test rapide
 
-Créer un voyage avec ces étapes :
-
-1. Aéroport de Paris-Charles-de-Gaulle — transport suivant : avion.
-2. Aéroport international de Tokyo — transport suivant : voiture ou train.
-3. Hôtel à Tokyo.
-
-La page Carte doit afficher :
-
-- une grande carte stable ;
-- les marqueurs numérotés ;
-- un segment avion en pointillés courbé ;
-- un segment voiture/train entre l’aéroport et l’hôtel ;
-- les distances, durées et coûts estimés dans le panneau de gauche.
+- Créer un voyage guidé.
+- Ajouter deux étapes avec recherche d’adresse.
+- Ouvrir Planning.
+- Modifier un trajet : avion, voiture, train, horaires, référence.
+- Ouvrir Carte.
+- Ajouter une dépense prévue et une dépense réelle.
+- Ajouter des prénoms pour vérifier la redistribution.
+- Cliquer sur Partager pour générer un lien en lecture seule.

@@ -22,7 +22,7 @@
         <button class="nav-item is-active" data-view-link="dashboard">🏠 <span>Accueil</span></button>
         <button class="nav-item" data-view-link="trip">🧭 <span>Voyage</span></button>
         <button class="nav-item" data-view-link="map">🗺️ <span>Carte</span></button>
-        <button class="nav-item" data-view-link="itinerary">📍 <span>Itinéraire</span></button>
+        <button class="nav-item" data-view-link="itinerary">🗓️ <span>Planning</span></button>
         <button class="nav-item" data-view-link="budget">💶 <span>Budget</span></button>
         <button class="nav-item" data-view-link="suggestions">💡 <span>Suggestions</span></button>
         <button class="nav-item" data-view-link="preparation">✅ <span>Préparation</span></button>
@@ -82,7 +82,10 @@
                 <p class="eyebrow">Informations générales</p>
                 <h2>Créer ou modifier un voyage</h2>
               </div>
-              <button type="submit" class="button button--primary">Enregistrer</button>
+              <div class="button-row">
+                <button type="button" class="button" id="openWizardBtn">Assistant</button>
+                <button type="submit" class="button button--primary">Enregistrer</button>
+              </div>
             </div>
 
             <label>Nom du voyage<input class="input" name="name" required placeholder="Road trip Italie du Nord" /></label>
@@ -90,6 +93,7 @@
             <label>Date de départ<input class="input" name="startDate" type="date" /></label>
             <label>Date de retour<input class="input" name="endDate" type="date" /></label>
             <label>Nombre de voyageurs<input class="input" name="travellers" type="number" min="1" value="1" /></label>
+            <label>Prénoms voyageurs<input class="input" name="travellersNames" placeholder="Lucas, Marie, Hugo" /></label>
             <label>Budget maximum<input class="input" name="maxBudget" type="number" min="0" step="1" placeholder="1500" /></label>
             <label>Devise
               <select class="input" name="currency">
@@ -204,6 +208,8 @@
               <button class="button" id="addExpenseBtn">+ Dépense</button>
             </div>
             <div id="budgetStats" class="stats-grid"></div>
+            <div id="budgetDaily" class="budget-daily"></div>
+            <div id="budgetPeople" class="budget-people"></div>
             <div class="chart-wrap"><canvas id="budgetChart" width="700" height="320"></canvas></div>
             <div id="expensesList" class="expenses-list"></div>
           </div>
@@ -324,6 +330,73 @@
     </main>
   </div>
 
+
+  <dialog id="tripWizardDialog" class="modal">
+    <form method="dialog" id="tripWizardForm" class="modal__content wizard-form">
+      <div class="panel__header wide">
+        <div>
+          <p class="eyebrow">Assistant</p>
+          <h2>Créer un voyage guidé</h2>
+        </div>
+        <button type="button" class="icon-button" data-close-dialog="tripWizardDialog" aria-label="Fermer">×</button>
+      </div>
+      <div class="wizard-steps">
+        <section class="wizard-step-card">
+          <span class="wizard-number">1</span>
+          <h3>Base du voyage</h3>
+          <label>Nom<input class="input" name="name" required placeholder="Roadtrip Japon" /></label>
+          <label>Zone / pays<input class="input" name="area" placeholder="Japon, Italie du Nord..." /></label>
+          <label>Départ<input class="input" name="startDate" type="date" /></label>
+          <label>Retour<input class="input" name="endDate" type="date" /></label>
+        </section>
+        <section class="wizard-step-card">
+          <span class="wizard-number">2</span>
+          <h3>Voyageurs & budget</h3>
+          <label>Prénoms<input class="input" name="travellersNames" placeholder="Lucas, Marie" /></label>
+          <label>Budget maximum<input class="input" name="maxBudget" type="number" min="0" step="1" placeholder="2500" /></label>
+          <label>Devise
+            <select class="input" name="currency">
+              <option value="€">€ — Euro</option><option value="$">$ — Dollar</option><option value="£">£ — Livre</option><option value="CHF">CHF</option><option value="¥">¥ — Yen</option>
+            </select>
+          </label>
+        </section>
+        <section class="wizard-step-card">
+          <span class="wizard-number">3</span>
+          <h3>Style</h3>
+          <label>Style
+            <select class="input" name="style"><option>économique</option><option selected>équilibré</option><option>confort</option><option>aventure</option></select>
+          </label>
+          <label>Rythme
+            <select class="input" name="pace"><option>tranquille</option><option selected>normal</option><option>intense</option></select>
+          </label>
+          <label>Centres d’intérêt<input class="input" name="interests" placeholder="nature, ville, gastronomie..." /></label>
+        </section>
+        <section class="wizard-step-card">
+          <span class="wizard-number">4</span>
+          <h3>Premières étapes</h3>
+          <label>Point de départ<input class="input" name="startPlace" placeholder="Paris CDG" /></label>
+          <label>Destination finale<input class="input" name="endPlace" placeholder="Tokyo" /></label>
+          <label class="wide">Description<textarea class="input" name="description" rows="3" placeholder="Objectif, ambiance, contraintes..."></textarea></label>
+        </section>
+      </div>
+      <menu class="modal__actions wide">
+        <button type="button" class="button" data-close-dialog="tripWizardDialog">Annuler</button>
+        <button type="submit" class="button button--primary" value="default">Créer le voyage</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="shareDialog" class="modal">
+    <form method="dialog" class="modal__content confirm-box">
+      <h2>Partager en lecture seule</h2>
+      <p>Copie ce lien pour afficher le voyage sans autoriser les modifications.</p>
+      <input class="input" id="shareLinkInput" readonly />
+      <menu class="modal__actions">
+        <button class="button" value="cancel">Fermer</button>
+        <button type="button" class="button button--primary" id="copyShareLinkBtn">Copier</button>
+      </menu>
+    </form>
+  </dialog>
   <dialog id="stepDialog" class="modal">
     <form method="dialog" id="stepForm" class="modal__content form-grid">
       <div class="panel__header wide">
@@ -394,7 +467,8 @@
       <input type="hidden" name="id" />
       <label>Libellé<input class="input" name="label" required placeholder="Hôtel, carburant, musée..." /></label>
       <label>Catégorie<select class="input" name="category"></select></label>
-      <label>Montant<input class="input" name="amount" type="number" min="0" step="0.01" required /></label>
+      <label>Montant prévu<input class="input" name="plannedAmount" type="number" min="0" step="0.01" placeholder="120" /></label>
+      <label>Montant réel<input class="input" name="actualAmount" type="number" min="0" step="0.01" placeholder="145" /></label>
       <label>Statut
         <select class="input" name="status">
           <option value="prévue">prévue</option>
@@ -403,8 +477,13 @@
           <option value="partagée">partagée</option>
         </select>
       </label>
+      <label>Payé par<select class="input" name="paidBy"></select></label>
       <label>Date<input class="input" name="date" type="date" /></label>
       <label>Liée à une étape<select class="input" name="stepId"></select></label>
+      <div class="wide">
+        <span class="field-label">À répartir entre</span>
+        <div id="expenseSplitPeople" class="split-people"></div>
+      </div>
       <label class="wide">Note<textarea class="input" name="note" rows="3"></textarea></label>
       <menu class="modal__actions wide">
         <button type="button" class="button" data-close-dialog="expenseDialog">Annuler</button>
