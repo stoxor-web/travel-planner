@@ -142,7 +142,7 @@
   function requireCloudReady() {
     if (appReady && CloudSync?.getUser()) return true;
     switchView('dashboard');
-    showStatus('Connecte-toi avec Google pour utiliser le planificateur.');
+    showStatus('Connecte-toi pour continuer.');
     return false;
   }
 
@@ -180,42 +180,21 @@
     const user = CloudSync?.getUser();
 
     if (cloudLoading) {
-      grid.innerHTML = '<div class="empty-state">Chargement de Firebase…</div>';
+      grid.innerHTML = '<div class="empty-state">Chargement…</div>';
       return;
     }
 
     if (!user || !appReady) {
       grid.innerHTML = `
-        <div class="auth-landing">
-          <div class="auth-card">
-            <div class="auth-card__badge"><span></span> Firebase Cloud Sync</div>
-            <h2>Connecte-toi pour retrouver ton espace voyage</h2>
-            <p>Ton tableau de bord est privé : chaque itinéraire, budget et carnet est chargé depuis ton compte Google, puis sauvegardé automatiquement dans Firebase.</p>
+        <div class="auth-landing auth-landing--simple">
+          <div class="auth-card auth-card--simple">
+            <div class="auth-card__icon">✈️</div>
+            <h2>Connecte-toi à ton espace voyage</h2>
             <button class="button button--google auth-card__button" id="dashboardSignInBtn">
               <span class="google-mark">G</span>
               <span>Continuer avec Google</span>
             </button>
-            <div class="auth-card__meta">
-              <span>🔐 Accès privé</span>
-              <span>☁️ Auto-save</span>
-              <span>📱 Multi-appareils</span>
-            </div>
-          </div>
-
-          <div class="auth-preview" aria-hidden="true">
-            <div class="auth-preview__top">
-              <span></span><span></span><span></span>
-            </div>
-            <div class="auth-route-card">
-              <small>Voyage synchronisé</small>
-              <strong>Paris → Venise</strong>
-              <div class="auth-route-line"><i></i><i></i><i></i><i></i></div>
-            </div>
-            <div class="auth-mini-grid">
-              <div><strong>4</strong><small>étapes</small></div>
-              <div><strong>92%</strong><small>préparé</small></div>
-              <div><strong>auto</strong><small>cloud</small></div>
-            </div>
+            <small>Chargement et sauvegarde automatiques.</small>
           </div>
         </div>
       `;
@@ -224,7 +203,7 @@
     }
 
     if (!state.trips.length) {
-      grid.innerHTML = '<div class="empty-state">Aucun voyage dans Firebase pour ce compte. Crée ton premier itinéraire ou charge l’exemple.</div>';
+      grid.innerHTML = '<div class="empty-state">Aucun voyage pour le moment. Crée ton premier itinéraire.</div>';
       return;
     }
 
@@ -353,7 +332,7 @@
   async function deleteTrip(id) {
     if (!requireCloudReady()) return;
     const trip = state.trips.find(item => item.id === id);
-    const ok = await confirmAction('Supprimer ce voyage ?', `“${trip?.name || 'Voyage'}” sera supprimé de Firebase pour ton compte Google.`);
+    const ok = await confirmAction('Supprimer ce voyage ?', `“${trip?.name || 'Voyage'}” sera supprimé de ton compte.`);
     if (!ok) return;
     state = Storage.deleteTrip(state, id);
     renderAll();
@@ -702,7 +681,7 @@
   async function initCloudSync() {
     if (!CloudSync) {
       cloudLoading = false;
-      showStatus('Module Firebase introuvable.');
+      showStatus('Module de connexion introuvable.');
       renderAll();
       return;
     }
@@ -715,7 +694,7 @@
         appReady = false;
         updateCloudUi({ status: error.message });
         renderAll();
-        showStatus(error.message || 'Chargement Firebase impossible.');
+        showStatus(error.message || 'Chargement impossible.');
       });
     });
 
@@ -723,7 +702,7 @@
       if (!CloudSync.isConfigured()) {
         cloudLoading = false;
         appReady = false;
-        updateCloudUi({ configured: false, status: 'Firebase n’est pas configuré dans js/firebase-config.js.' });
+        updateCloudUi({ configured: false, status: 'Configuration cloud manquante.' });
         renderAll();
         return;
       }
@@ -735,7 +714,7 @@
       appReady = false;
       updateCloudUi({ status: error.message, configured: false });
       renderAll();
-      showStatus(error.message || 'Initialisation Firebase impossible.');
+      showStatus(error.message || 'Initialisation impossible.');
     }
   }
 
@@ -771,7 +750,7 @@
     applyTheme(state.settings.theme || 'light');
     renderAll();
     updateCloudUi({ user, status: CloudSync.getStatus(), configured: true });
-    showStatus('Voyages chargés depuis Firebase. Sauvegarde automatique active.');
+    showStatus('Voyages chargés.');
   }
 
   function updateCloudUi(payload = {}) {
@@ -794,7 +773,7 @@
     document.body.classList.toggle('is-cloud-locked', !appReady || !user);
 
     if (statusEl) {
-      const statusText = status || (configured ? 'Connexion Google requise.' : 'Firebase non configuré.');
+      const statusText = status || (configured ? 'Connecte-toi pour continuer.' : 'Configuration cloud manquante.');
       const statusMode = !configured ? 'error' : user && appReady ? 'success' : cloudLoading ? 'loading' : 'idle';
       statusEl.classList.remove('cloud-status--idle', 'cloud-status--success', 'cloud-status--loading', 'cloud-status--error');
       statusEl.classList.add(`cloud-status--${statusMode}`);
@@ -808,7 +787,7 @@
       topButton.classList.toggle('is-connected', Boolean(user));
       topButton.innerHTML = user
         ? '<span class="cloud-dot"></span><span>Connecté</span>'
-        : '<span class="cloud-dot"></span><span>Connexion Google</span>';
+        : '<span class="cloud-dot"></span><span>Compte</span>';
     }
     if (signInBtn) {
       signInBtn.disabled = !configured || Boolean(user) || cloudLoading;
@@ -820,7 +799,7 @@
     }
     if (signOutBtn) signOutBtn.disabled = !user;
     if (deleteCloudBtn) deleteCloudBtn.disabled = !user || !appReady;
-    if (syncMeta) syncMeta.textContent = cloudLastSavedAt ? `Dernière sauvegarde : ${U.formatDate(cloudLastSavedAt)} ${new Date(cloudLastSavedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : 'Sauvegarde Firebase automatique active après connexion.';
+    if (syncMeta) syncMeta.textContent = cloudLastSavedAt ? `Dernière sauvegarde : ${U.formatDate(cloudLastSavedAt)} ${new Date(cloudLastSavedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : 'Connecté à Google.';
 
     protectedControls.forEach(id => {
       const element = document.getElementById(id);
@@ -831,7 +810,7 @@
   async function handleCloudAuth() {
     if (!CloudSync?.isConfigured()) {
       switchView('settings');
-      showStatus('Firebase doit être renseigné dans js/firebase-config.js.');
+      showStatus('Configuration cloud manquante.');
       return;
     }
     if (CloudSync.getUser()) {
@@ -850,14 +829,14 @@
     } catch (error) {
       console.error(error);
       cloudLoading = false;
-      showStatus(error.message || 'Connexion Google impossible.');
+      showStatus(error.message || 'Connexion impossible.');
       updateCloudUi({ status: error.message });
       renderAll();
     }
   }
 
   async function handleCloudSignOut() {
-    const ok = await confirmAction('Se déconnecter ?', 'Les voyages seront retirés de cette session. Ils resteront dans Firebase pour ce compte Google.');
+    const ok = await confirmAction('Se déconnecter ?', 'Les voyages seront retirés de cette session.');
     if (!ok) return;
     try {
       await flushCloudAutosave();
@@ -866,7 +845,7 @@
       appReady = false;
       loadedCloudUid = null;
       renderAll();
-      showStatus('Déconnexion Google effectuée.');
+      showStatus('Déconnexion effectuée.');
     } catch (error) {
       showStatus(error.message || 'Déconnexion impossible.');
     }
@@ -880,18 +859,18 @@
       await CloudSync.saveState(savedState);
       cloudLastSavedAt = new Date().toISOString();
       updateCloudUi({ status: CloudSync.getStatus() });
-      if (!silent) showStatus('Sauvegardé dans Firebase.');
+      if (!silent) showStatus('Sauvegardé.');
     } catch (error) {
       console.error(error);
       updateCloudUi({ status: error.message });
-      if (!silent) showStatus(error.message || 'Sauvegarde Firebase impossible.');
+      if (!silent) showStatus(error.message || 'Sauvegarde impossible.');
     }
   }
 
   function scheduleCloudAutosave(delay = 650) {
     if (!appReady || !CloudSync?.getUser()) return;
     clearTimeout(cloudAutosaveTimer);
-    updateCloudUi({ status: 'Sauvegarde Firebase en attente…' });
+    updateCloudUi({ status: 'Sauvegarde…' });
     cloudAutosaveTimer = setTimeout(() => saveCloudStateNow(true), delay);
   }
 
@@ -902,18 +881,18 @@
 
   async function deleteCloudData() {
     if (!requireCloudReady()) return;
-    const ok = await confirmAction('Supprimer toutes les données Firebase ?', 'Tous les voyages de ce compte Google seront supprimés de Firestore. Cette action est définitive.');
+    const ok = await confirmAction('Supprimer tous mes voyages ?', 'Tous les voyages de ce compte seront supprimés. Cette action est définitive.');
     if (!ok) return;
     try {
       await CloudSync.deleteState();
       state = Storage.createEmptyState();
       appReady = true;
       renderAll();
-      updateCloudUi({ status: 'Données Firebase supprimées. Tu peux créer un nouveau voyage.' });
-      showStatus('Données Firebase supprimées.');
+      updateCloudUi({ status: 'Données supprimées. Tu peux créer un nouveau voyage.' });
+      showStatus('Données supprimées.');
     } catch (error) {
       console.error(error);
-      showStatus(error.message || 'Suppression Firebase impossible.');
+      showStatus(error.message || 'Suppression impossible.');
     }
   }
 
