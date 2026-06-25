@@ -1,6 +1,19 @@
-# Travel Planner — V4 Firebase opérationnelle
+# Travel Planner — V4.1 Design application
 
 Application web personnelle de planification de voyages, hébergeable sur GitHub Pages et synchronisée avec Firebase via connexion Google.
+
+
+## Nouveautés V4.1 — Aspect visuel
+
+- Interface plus premium avec arrière-plan plus doux et effet application.
+- Accueil plus impactant visuellement.
+- Cartes voyages modernisées avec couverture graphique et progression.
+- Navigation latérale et navigation mobile plus propres.
+- Boutons, formulaires, panneaux et modales harmonisés.
+- Planning jour par jour mieux présenté.
+- Budget, suggestions, préparation et carnet plus lisibles.
+- Amélioration des contrastes en mode clair et sombre.
+- Finition mobile renforcée pour iPhone.
 
 ## Nouveautés V4
 
