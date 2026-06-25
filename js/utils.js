@@ -24,7 +24,8 @@
     speeds: { car: 90, train: 120, plane: 720, bus: 65, bike: 18, walk: 4.5, boat: 35, other: 50 },
     costPerKm: { car: 0.22, train: 0.14, plane: 0.11, bus: 0.08, bike: 0, walk: 0, boat: 0.12, other: 0 },
     fixedHours: { plane: 3, train: 0.25, boat: 0.4, other: 0 },
-    theme: 'light'
+    theme: 'light',
+    autosaveMinutes: 3
   };
 
   const checklistTemplates = {

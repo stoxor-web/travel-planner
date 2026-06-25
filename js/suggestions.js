@@ -55,6 +55,25 @@
       if (!categories.has(category)) add(suggestions, 'warning', `Le poste “${category}” n’a pas encore de dépense prévue.`);
     });
 
+    const stepTypes = new Set(steps.map(step => String(step.type || '').toLowerCase()));
+    const hasAirport = [...stepTypes].some(type => type.includes('aéroport'));
+    const hasHotel = [...stepTypes].some(type => type.includes('hôtel') || type.includes('hotel'));
+    const hasRestaurant = [...stepTypes].some(type => type.includes('restaurant'));
+    if (hasAirport && !segments.some(segment => segment.from.segmentReference || segment.from.segmentNote)) add(suggestions, 'warning', 'Tu as un aéroport dans le voyage : ajoute un numéro de vol, une marge horaire ou une note de transfert.');
+    if (days > 1 && !hasHotel) add(suggestions, 'warning', 'Aucun hôtel n’est identifié alors que le voyage dure plusieurs jours.');
+    if (days > 2 && !hasRestaurant && trip.style !== 'économique') add(suggestions, 'warning', 'Aucun restaurant n’est prévu. Ajoute au moins quelques repas importants pour mieux anticiper le budget.');
+    steps.forEach(step => {
+      if (step.priority === 'indispensable' && !step.arrivalDate) add(suggestions, 'warning', `L’étape indispensable “${step.name}” n’a pas encore de date.`);
+      if (!step.links?.length && ['hôtel', 'aéroport', 'gare'].some(type => String(step.type || '').toLowerCase().includes(type))) add(suggestions, 'warning', `Ajoute un lien ou une référence pour “${step.name}”.`);
+    });
+
+    const style = String(trip.style || '').toLowerCase();
+    if (style.includes('économique') && budget.max && budget.byCategory.nourriture > budget.max * 0.25) add(suggestions, 'warning', 'Style économique : le budget nourriture paraît élevé. Prévois courses ou repas simples si besoin.');
+    if (style.includes('confort') && segments.some(segment => !segment.from.segmentDepartureTime && !segment.from.segmentNote)) add(suggestions, 'warning', 'Style confort : renseigne les horaires ou notes de transfert pour éviter les imprévus.');
+    if (style.includes('aventure') && !Object.keys(trip.checklists || {}).some(name => /randonn|sant|nature/i.test(name))) add(suggestions, 'warning', 'Style aventure : ajoute une checklist randonnée, santé ou météo.');
+    if (style.includes('équilibré') && steps.length / Math.max(1, days) > 4) add(suggestions, 'warning', 'Style équilibré : certaines journées risquent d’être trop denses.');
+
+
     const preparationItems = Object.values(trip.checklists || {}).flat();
     const done = preparationItems.filter(item => item.done).length;
     if (preparationItems.length && done / preparationItems.length < 0.25) add(suggestions, 'warning', 'La préparation est encore peu avancée. Coche les documents, réservations et éléments importants avant le départ.');
@@ -129,9 +148,10 @@
       <div class="score-grid">${scoreRows}</div>
     `;
     containerSuggestions.innerHTML = analysis.suggestions.map(item => `
-      <article class="suggestion-row" data-level="${item.level}">
+      <article class="suggestion-row suggestion-row--smart" data-level="${item.level}">
         <span class="badge ${item.level === 'danger' ? 'badge--danger' : item.level === 'success' ? 'badge--success' : 'badge--warning'}">${item.level === 'danger' ? 'À corriger' : item.level === 'success' ? 'Bon point' : 'À surveiller'}</span>
         <p>${window.TravelUtils.escapeHtml(item.message)}</p>
+        <small>${item.level === 'success' ? 'Aucune action nécessaire.' : 'À vérifier dans Voyage, Planning ou Budget.'}</small>
       </article>
     `).join('');
   }

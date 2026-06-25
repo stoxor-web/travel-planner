@@ -198,6 +198,11 @@
     return firestoreModule.doc(firestoreDb, 'publicTrips', shareId);
   }
 
+  function collaborativeTripDocRef(shareId) {
+    const { firestoreModule } = modules;
+    return firestoreModule.doc(firestoreDb, 'sharedTrips', shareId);
+  }
+
   function sanitizeStateForCloud(state) {
     return JSON.parse(JSON.stringify({
       version: state.version || 1,
@@ -276,11 +281,24 @@
     notifyAuthListeners();
   }
 
-  function sanitizeTripForPublic(trip) {
-    return JSON.parse(JSON.stringify(trip || {}));
+  function sanitizeTripForPublic(trip, options = {}) {
+    const copy = JSON.parse(JSON.stringify(trip || {}));
+    if (options.hideBudget) {
+      copy.maxBudget = 0;
+      copy.expenses = [];
+      copy.steps = (copy.steps || []).map(step => ({ ...step, cost: 0, segmentCost: 0 }));
+    }
+    if (options.hideNotes) {
+      copy.description = '';
+      copy.steps = (copy.steps || []).map(step => ({ ...step, notes: '', links: [], segmentNote: '' }));
+    }
+    if (options.hideJournal) {
+      copy.steps = (copy.steps || []).map(step => ({ ...step, journal: {} }));
+    }
+    return copy;
   }
 
-  async function publishTripShare(trip) {
+  async function publishTripShare(trip, options = {}) {
     await init();
     requireSignedIn();
     const { firestoreModule } = await loadModules();
@@ -292,7 +310,8 @@
       schema: 'travelPlannerPublicTrip',
       schemaVersion: 1,
       shareId,
-      trip: sanitizeTripForPublic({ ...trip, shareId }),
+      options: { hideBudget: Boolean(options.hideBudget), hideNotes: Boolean(options.hideNotes), hideJournal: Boolean(options.hideJournal) },
+      trip: sanitizeTripForPublic({ ...trip, shareId }, options),
       clientUpdatedAt: new Date().toISOString(),
       updatedAt: firestoreModule.serverTimestamp()
     };
@@ -312,6 +331,61 @@
     currentStatus = 'Voyage partagé chargé.';
     notifyAuthListeners();
     return data;
+  }
+
+
+  function normalizeEmails(value) {
+    if (Array.isArray(value)) return value.map(email => String(email || '').trim().toLowerCase()).filter(Boolean);
+    return String(value || '').split(',').map(email => email.trim().toLowerCase()).filter(Boolean);
+  }
+
+  async function publishCollaborativeTrip(trip, emails = []) {
+    await init();
+    requireSignedIn();
+    const { firestoreModule } = await loadModules();
+    const collaborators = normalizeEmails(emails);
+    const shareId = trip.collabId || `${currentUser.uid.slice(0, 8)}_co_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const payload = {
+      ownerUid: currentUser.uid,
+      ownerEmail: currentUser.email || '',
+      collaborators,
+      schema: 'travelPlannerCollaborativeTrip',
+      schemaVersion: 1,
+      shareId,
+      trip: JSON.parse(JSON.stringify({ ...trip, collabId: shareId, collaborators })),
+      clientUpdatedAt: new Date().toISOString(),
+      updatedAt: firestoreModule.serverTimestamp()
+    };
+    await firestoreModule.setDoc(collaborativeTripDocRef(shareId), payload);
+    currentStatus = 'Collaboration privée créée.';
+    notifyAuthListeners();
+    return { shareId, payload };
+  }
+
+  async function loadCollaborativeTrip(shareId) {
+    await init();
+    requireSignedIn();
+    const { firestoreModule } = await loadModules();
+    const snapshot = await firestoreModule.getDoc(collaborativeTripDocRef(shareId));
+    if (!snapshot.exists()) return null;
+    const data = snapshot.data();
+    currentStatus = 'Voyage collaboratif chargé.';
+    notifyAuthListeners();
+    return data;
+  }
+
+  async function saveCollaborativeTrip(shareId, trip) {
+    await init();
+    requireSignedIn();
+    const { firestoreModule } = await loadModules();
+    const ref = collaborativeTripDocRef(shareId);
+    await firestoreModule.updateDoc(ref, {
+      trip: JSON.parse(JSON.stringify({ ...trip, collabId: shareId })),
+      clientUpdatedAt: new Date().toISOString(),
+      updatedAt: firestoreModule.serverTimestamp()
+    });
+    currentStatus = 'Collaboration privée sauvegardée.';
+    notifyAuthListeners();
   }
 
   function isAutoSyncEnabled() {
@@ -357,6 +431,9 @@
     deleteState,
     publishTripShare,
     loadPublicShare,
+    publishCollaborativeTrip,
+    loadCollaborativeTrip,
+    saveCollaborativeTrip,
     getUser,
     getStatus,
     onAuthChange,

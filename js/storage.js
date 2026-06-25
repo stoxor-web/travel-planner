@@ -4,6 +4,7 @@
   // Depuis la version Firebase-only, ce module ne persiste plus les voyages dans localStorage.
   // Il sert uniquement à normaliser l'état en mémoire avant lecture/écriture Firestore.
   const LEGACY_KEY = 'travelPlanner:v1';
+  const OFFLINE_CACHE_KEY = 'travelPlanner:offlineCache:v1';
   const { defaultSettings, deepMerge, uid, createDefaultChecklists, clone } = window.TravelUtils;
 
   const emptyState = {
@@ -22,6 +23,9 @@
     return {
       id: trip.id || uid('trip'),
       shareId: trip.shareId || '',
+      collabId: trip.collabId || '',
+      collaborators: Array.isArray(trip.collaborators) ? trip.collaborators : [],
+      shareOptions: trip.shareOptions || {},
       name: trip.name || 'Nouveau voyage',
       description: trip.description || '',
       area: trip.area || '',
@@ -44,6 +48,7 @@
         type: step.type || 'ville',
         lat: step.lat === '' || step.lat == null ? '' : Number(step.lat),
         lng: step.lng === '' || step.lng == null ? '' : Number(step.lng),
+        address: step.address || '',
         arrivalDate: step.arrivalDate || '',
         departureDate: step.departureDate || '',
         duration: step.duration || '',
@@ -92,6 +97,28 @@
       cleaned.activeTripId = cleaned.trips[0]?.id || null;
     }
     return cleaned;
+  }
+
+
+
+  function saveOfflineCache(state) {
+    try {
+      localStorage.setItem(OFFLINE_CACHE_KEY, JSON.stringify({ savedAt: new Date().toISOString(), state: normalizeState(state) }));
+    } catch (error) {
+      console.warn('Cache hors ligne non disponible.', error);
+    }
+  }
+
+  function loadOfflineCache() {
+    try {
+      const raw = localStorage.getItem(OFFLINE_CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return { savedAt: parsed.savedAt || '', state: normalizeState(parsed.state || {}) };
+    } catch (error) {
+      console.warn('Cache hors ligne invalide.', error);
+      return null;
+    }
   }
 
   function load() {
@@ -174,6 +201,8 @@
     normalizeTrip,
     normalizeState,
     createEmptyState,
-    clearLegacyLocalBackup
+    clearLegacyLocalBackup,
+    saveOfflineCache,
+    loadOfflineCache
   };
 })();

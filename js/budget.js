@@ -94,6 +94,53 @@
     };
   }
 
+
+
+  function settlementRows(budget) {
+    const debtors = [];
+    const creditors = [];
+    Object.entries(budget.balances || {}).forEach(([name, row]) => {
+      const balance = Number(row.balance) || 0;
+      if (balance < -0.01) debtors.push({ name, amount: Math.abs(balance) });
+      if (balance > 0.01) creditors.push({ name, amount: balance });
+    });
+    debtors.sort((a, b) => b.amount - a.amount);
+    creditors.sort((a, b) => b.amount - a.amount);
+    const rows = [];
+    let i = 0;
+    let j = 0;
+    while (i < debtors.length && j < creditors.length) {
+      const amount = Math.min(debtors[i].amount, creditors[j].amount);
+      if (amount > 0.01) rows.push({ from: debtors[i].name, to: creditors[j].name, amount });
+      debtors[i].amount -= amount;
+      creditors[j].amount -= amount;
+      if (debtors[i].amount <= 0.01) i += 1;
+      if (creditors[j].amount <= 0.01) j += 1;
+    }
+    return rows;
+  }
+
+  function renderAlerts(container, trip) {
+    if (!container) return;
+    if (!trip) { container.innerHTML = ''; return; }
+    const budget = computeBudget(trip);
+    const currency = trip.currency || '€';
+    const alerts = [];
+    if (budget.max && budget.plannedTotal > budget.max) alerts.push({ level: 'danger', text: `Budget prévu dépassé de ${formatMoney(budget.plannedTotal - budget.max, currency)}.` });
+    if (budget.max && budget.percent >= 85 && budget.percent <= 100) alerts.push({ level: 'warning', text: `Tu as déjà planifié ${budget.percent}% du budget maximum.` });
+    if (budget.actualTotal > 0 && budget.actualTotal > budget.plannedTotal * 1.1) alerts.push({ level: 'danger', text: `Les dépenses réelles dépassent de plus de 10% le prévu.` });
+    const rows = Object.entries(budget.byDay).filter(([, value]) => value > budget.perDay * 1.7 && budget.perDay > 0);
+    rows.slice(0, 2).forEach(([day, value]) => alerts.push({ level: 'warning', text: `${day === 'non daté' ? 'Dépenses non datées' : formatDate(day)} : ${formatMoney(value, currency)}, journée plus coûteuse que la moyenne.` }));
+    const missingPayer = (trip.expenses || []).filter(expense => expenseEffective(expense) > 0 && !expense.paidBy && travellerNames(trip).length > 1).length;
+    if (missingPayer) alerts.push({ level: 'warning', text: `${missingPayer} dépense(s) partagée(s) n’ont pas encore de payeur.` });
+    if (!alerts.length) { container.innerHTML = ''; return; }
+    container.innerHTML = `
+      <div class="budget-alert-panel">
+        ${alerts.map(alert => `<article class="budget-alert" data-level="${alert.level}"><strong>${alert.level === 'danger' ? 'À corriger' : 'À surveiller'}</strong><span>${escapeHtml(alert.text)}</span></article>`).join('')}
+      </div>
+    `;
+  }
+
   function renderStats(container, trip) {
     const budget = computeBudget(trip);
     const currency = trip?.currency || '€';
@@ -129,6 +176,7 @@
     if (!container) return;
     const budget = computeBudget(trip);
     const currency = trip?.currency || '€';
+    const settlements = settlementRows(budget);
     container.innerHTML = `
       <div class="mini-panel">
         <div class="mini-panel__head"><strong>Répartition voyageurs</strong><span>${budget.names.length} personne(s)</span></div>
@@ -142,6 +190,10 @@
               <em class="${row.balance >= 0 ? 'positive' : 'negative'}">${row.balance >= 0 ? 'À recevoir' : 'À verser'} : ${formatMoney(Math.abs(row.balance || 0), currency)}</em>
             </article>`;
           }).join('')}
+        </div>
+        <div class="tricount-settlements">
+          <strong>Équilibrage type TriCount</strong>
+          ${settlements.length ? settlements.map(row => `<p>${escapeHtml(row.from)} doit ${formatMoney(row.amount, currency)} à ${escapeHtml(row.to)}</p>`).join('') : '<p>Tout est équilibré pour le moment.</p>'}
         </div>
       </div>
     `;
@@ -253,5 +305,5 @@
     container.querySelectorAll('[data-delete-expense]').forEach(btn => btn.addEventListener('click', () => handlers?.delete?.(btn.dataset.deleteExpense)));
   }
 
-  window.TravelBudget = { computeBudget, renderStats, renderDaily, renderPeople, renderBreakdown, drawChart, renderExpenses, travellerNames };
+  window.TravelBudget = { computeBudget, renderStats, renderAlerts, renderDaily, renderPeople, renderBreakdown, drawChart, renderExpenses, travellerNames, settlementRows };
 })();

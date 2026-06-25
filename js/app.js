@@ -12,13 +12,17 @@
 
   let state = Storage.load();
   let cloudAutosaveTimer = null;
+  let periodicAutosaveTimer = null;
   let cloudLastSavedAt = '';
   let loadedCloudUid = null;
   let appReady = false;
   let cloudLoading = true;
   let currentView = 'dashboard';
   let readOnlyMode = false;
+  let collabMode = false;
   let currentShareId = '';
+  let currentCollabId = '';
+  let pendingShareTripId = '';
 
   const titles = {
     dashboard: 'Tableau de bord',
@@ -32,6 +36,16 @@
     settings: 'Paramètres'
   };
 
+
+
+  const TRIP_TEMPLATES = [
+    { id: 'citybreak', icon: '🏙️', title: 'Week-end ville', description: 'Planning court, restaurants, visites, budget simple.', style: 'équilibré', pace: 'normal', interests: 'ville, culture, gastronomie', checklist: ['Réservation hôtel', 'Billets transport', 'Restaurants repérés', 'Liste de visites'] },
+    { id: 'roadtrip', icon: '🚗', title: 'Roadtrip', description: 'Étapes successives, trajets, carburant, péages et pauses.', style: 'aventure', pace: 'normal', interests: 'route, nature, photo', checklist: ['Vérifier la voiture', 'Assurance et papiers', 'Chargeurs', 'Pauses prévues', 'Parkings repérés'] },
+    { id: 'plane', icon: '✈️', title: 'Voyage en avion', description: 'Aéroport, transferts, hôtel, réservations et marge horaire.', style: 'confort', pace: 'normal', interests: 'ville, culture, restaurants', checklist: ['Passeport / carte d’identité', 'Billets avion', 'Transfert aéroport', 'Check-in hôtel', 'Assurance voyage'] },
+    { id: 'friends', icon: '👥', title: 'Entre amis', description: 'Budget partagé façon TriCount, activités et notes communes.', style: 'équilibré', pace: 'intense', interests: 'activités, restaurants, sorties', checklist: ['Créer la liste des participants', 'Définir le budget commun', 'Répartir les paiements', 'Réservations groupées'] },
+    { id: 'nature', icon: '🥾', title: 'Nature / aventure', description: 'Randonnées, météo, équipement, sécurité et lieux bonus.', style: 'aventure', pace: 'normal', interests: 'nature, randonnée, photo', checklist: ['Météo', 'Chaussures adaptées', 'Trousse de secours', 'Carte hors ligne', 'Batterie externe'] }
+  ];
+
   const $ = selector => document.querySelector(selector);
   const $$ = selector => [...document.querySelectorAll(selector)];
 
@@ -40,10 +54,15 @@
     bindNavigation();
     bindActions();
     applyTheme(state.settings.theme || 'light');
+    const legalYear = document.getElementById('legalYear');
+    if (legalYear) legalYear.textContent = new Date().getFullYear();
     renderAll();
     switchView(location.hash?.replace('#', '') || 'dashboard');
-    const shareId = new URLSearchParams(location.search).get('share');
+    const params = new URLSearchParams(location.search);
+    const shareId = params.get('share');
+    const collabId = params.get('collab');
     if (shareId) initSharedMode(shareId);
+    else if (collabId) initCollaborativeMode(collabId);
     else initCloudSync();
   }
 
@@ -128,7 +147,11 @@
     on('addChecklistBlockBtn', 'click', addChecklistBlock);
     on('saveSettingsBtn', 'click', saveSettings);
     on('deleteCloudDataBtn', 'click', deleteCloudData);
+    on('createPublicShareBtn', 'click', createPublicShareFromDialog);
     on('copyShareLinkBtn', 'click', copyShareLink);
+    on('createPrivateShareBtn', 'click', createPrivateCollaboration);
+    bindGlobalSearch();
+    bindFabMenu();
     bindCloudActions();
     bindPlaceSearch();
     window.addEventListener('resize', () => MapView.invalidate());
@@ -150,6 +173,7 @@
       MapView.activate?.();
       renderMap();
       MapView.invalidate();
+      setTimeout(() => MapView.fitBounds?.(), 120);
     }
     if (view === 'budget') renderBudget();
     if (view === 'suggestions') renderSuggestions();
@@ -158,6 +182,7 @@
 
   function renderAll() {
     renderTripSelector();
+    renderTripTemplates();
     renderDashboard();
     renderTripForm();
     renderSteps();
@@ -213,6 +238,128 @@
       ? state.trips.map(trip => `<option value="${trip.id}">${U.escapeHtml(trip.name)}</option>`).join('')
       : '<option value="">Aucun voyage</option>';
     selector.value = state.activeTripId || '';
+  }
+
+
+  function renderTripTemplates() {
+    const container = document.getElementById('tripTemplates');
+    if (!container) return;
+    if (!appReady || !CloudSync?.getUser() || readOnlyMode) {
+      container.innerHTML = '';
+      return;
+    }
+    container.innerHTML = TRIP_TEMPLATES.map(template => `
+      <button class="template-card" type="button" data-template-id="${template.id}">
+        <span>${template.icon}</span>
+        <strong>${template.title}</strong>
+        <small>${template.description}</small>
+      </button>
+    `).join('');
+    container.querySelectorAll('[data-template-id]').forEach(button => {
+      button.addEventListener('click', () => createTripFromTemplate(button.dataset.templateId));
+    });
+  }
+
+  function createTripFromTemplate(templateId) {
+    if (!requireCloudReady()) return;
+    const template = TRIP_TEMPLATES.find(item => item.id === templateId) || TRIP_TEMPLATES[0];
+    const checklist = { ...(U.createDefaultChecklists()) };
+    checklist['À faire en priorité'] = (template.checklist || []).map(text => ({ id: U.uid('todo'), text, done: false }));
+    const trip = Storage.normalizeTrip({
+      name: template.title,
+      description: template.description,
+      status: 'brouillon',
+      style: template.style,
+      pace: template.pace,
+      interests: template.interests,
+      checklists: checklist,
+      expenses: template.id === 'roadtrip' ? [
+        { label: 'Carburant', category: 'carburant', plannedAmount: 0, status: 'prévue' },
+        { label: 'Péages / parkings', category: 'péages', plannedAmount: 0, status: 'prévue' }
+      ] : template.id === 'friends' ? [
+        { label: 'Caisse commune', category: 'autres', plannedAmount: 0, status: 'partagée' }
+      ] : []
+    });
+    state = Storage.upsertTrip(state, trip);
+    renderAll();
+    scheduleCloudAutosave();
+    switchView('trip');
+    showStatus(`Modèle “${template.title}” ajouté.`);
+  }
+
+  function bindGlobalSearch() {
+    const input = document.getElementById('globalSearchInput');
+    const results = document.getElementById('globalSearchResults');
+    if (!input || !results || input.dataset.bound) return;
+    input.dataset.bound = 'true';
+    const close = () => { results.hidden = true; results.innerHTML = ''; };
+    input.addEventListener('input', () => {
+      const query = input.value.trim().toLowerCase();
+      if (query.length < 2 || !appReady) return close();
+      const matches = [];
+      (state.trips || []).forEach(trip => {
+        const push = (type, label, detail, view, apply) => matches.push({ type, label, detail, view, apply });
+        if (`${trip.name} ${trip.area} ${trip.description}`.toLowerCase().includes(query)) {
+          push('Voyage', trip.name, trip.area || 'ouvrir le voyage', 'dashboard', () => { state.activeTripId = trip.id; state = Storage.save(state); renderAll(); switchView('dashboard'); });
+        }
+        (trip.steps || []).forEach(step => {
+          if (`${step.name} ${step.type} ${step.address} ${step.notes}`.toLowerCase().includes(query)) {
+            push('Étape', step.name, `${trip.name} · ${step.type || 'lieu'}`, 'itinerary', () => { state.activeTripId = trip.id; state = Storage.save(state); renderAll(); switchView('itinerary'); setTimeout(() => openStepDialog(step.id), 120); });
+          }
+        });
+        (trip.expenses || []).forEach(expense => {
+          if (`${expense.label} ${expense.category} ${expense.note}`.toLowerCase().includes(query)) {
+            push('Dépense', expense.label, `${trip.name} · ${expense.category}`, 'budget', () => { state.activeTripId = trip.id; state = Storage.save(state); renderAll(); switchView('budget'); setTimeout(() => openExpenseDialog(expense.id), 120); });
+          }
+        });
+      });
+      if (!matches.length) {
+        results.hidden = false;
+        results.innerHTML = '<div class="search-result is-empty">Aucun résultat</div>';
+        return;
+      }
+      results.hidden = false;
+      results.innerHTML = matches.slice(0, 8).map((item, index) => `
+        <button class="search-result" type="button" data-search-index="${index}">
+          <span>${U.escapeHtml(item.type)}</span>
+          <strong>${U.escapeHtml(item.label)}</strong>
+          <small>${U.escapeHtml(item.detail || '')}</small>
+        </button>
+      `).join('');
+      results.querySelectorAll('[data-search-index]').forEach(button => {
+        button.addEventListener('click', () => {
+          const item = matches[Number(button.dataset.searchIndex)];
+          input.value = '';
+          close();
+          item?.apply?.();
+        });
+      });
+    });
+    document.addEventListener('click', event => {
+      if (!event.target.closest('.global-search')) close();
+    });
+  }
+
+  function bindFabMenu() {
+    const main = document.getElementById('fabMainBtn');
+    const menu = document.getElementById('fabMenu');
+    if (!main || !menu || main.dataset.bound) return;
+    main.dataset.bound = 'true';
+    const toggle = () => {
+      const open = menu.hidden;
+      menu.hidden = !open;
+      main.classList.toggle('is-open', open);
+    };
+    main.addEventListener('click', toggle);
+    const run = (handler) => {
+      menu.hidden = true;
+      main.classList.remove('is-open');
+      handler();
+    };
+    document.getElementById('fabAddTrip')?.addEventListener('click', () => run(startTripWizardFlow));
+    document.getElementById('fabAddStep')?.addEventListener('click', () => run(() => openStepDialog()));
+    document.getElementById('fabAddExpense')?.addEventListener('click', () => run(() => openExpenseDialog()));
+    document.getElementById('fabOpenChecklist')?.addEventListener('click', () => run(() => switchView('preparation')));
   }
 
   function renderDashboard() {
@@ -597,6 +744,18 @@
     persist('Étape supprimée.');
   }
 
+
+  function moveStepToDate(stepId, date) {
+    if (!requireCloudReady()) return;
+    const trip = activeTrip();
+    const step = trip?.steps.find(item => item.id === stepId);
+    if (!step) return;
+    step.arrivalDate = date || step.arrivalDate || '';
+    if (!step.departureDate || step.departureDate < step.arrivalDate) step.departureDate = step.arrivalDate;
+    normalizeOrders(trip);
+    persist('Étape déplacée dans le planning.');
+  }
+
   function moveStep(id, direction) {
     if (!requireCloudReady()) return;
     const trip = activeTrip();
@@ -626,7 +785,8 @@
     Itinerary.renderSummary($('#itinerarySummary'), trip, state.settings);
     Itinerary.renderDayPlanner?.($('#dayPlannerBoard'), trip, state.settings, {
       editStep: stepId => openStepDialog(stepId),
-      addStep: (date, type) => openStepDialog(null, date, type)
+      addStep: (date, type) => openStepDialog(null, date, type),
+      moveStep: (stepId, date) => moveStepToDate(stepId, date)
     });
     Itinerary.renderItinerary($('#itineraryList'), trip, state.settings, (stepId, field, value) => {
       updateSegmentField(stepId, field, value);
@@ -636,6 +796,7 @@
   function renderBudget() {
     const trip = activeTrip();
     Budget.renderStats($('#budgetStats'), trip);
+    Budget.renderAlerts?.($('#budgetAlerts'), trip);
     Budget.renderDaily?.($('#budgetDaily'), trip);
     Budget.renderPeople?.($('#budgetPeople'), trip);
     Budget.renderBreakdown($('#budgetBreakdown'), trip);
@@ -990,20 +1151,29 @@
 
   function renderSettings() {
     $$('#settingsPanel [data-setting]').forEach(input => {
-      const [group, key] = input.dataset.setting.split('.');
-      input.value = state.settings?.[group]?.[key] ?? '';
+      const parts = input.dataset.setting.split('.');
+      if (parts.length === 1) input.value = state.settings?.[parts[0]] ?? '';
+      else {
+        const [group, key] = parts;
+        input.value = state.settings?.[group]?.[key] ?? '';
+      }
     });
   }
 
   function saveSettings() {
     if (!requireCloudReady()) return;
     $$('#settingsPanel [data-setting]').forEach(input => {
-      const [group, key] = input.dataset.setting.split('.');
-      state.settings[group] ||= {};
-      state.settings[group][key] = Number(input.value) || 0;
+      const parts = input.dataset.setting.split('.');
+      if (parts.length === 1) state.settings[parts[0]] = Number(input.value) || 0;
+      else {
+        const [group, key] = parts;
+        state.settings[group] ||= {};
+        state.settings[group][key] = Number(input.value) || 0;
+      }
     });
     state = Storage.save(state);
     renderAll();
+    setupPeriodicAutosave();
     scheduleCloudAutosave();
     showStatus('Paramètres enregistrés.');
   }
@@ -1027,18 +1197,61 @@
     if (!requireCloudReady()) return;
     const trip = state.trips.find(item => item.id === tripId);
     if (!trip) return;
+    pendingShareTripId = tripId;
+    document.getElementById('shareHideBudget').checked = Boolean(trip.shareOptions?.hideBudget);
+    document.getElementById('shareHideNotes').checked = Boolean(trip.shareOptions?.hideNotes);
+    document.getElementById('shareHideJournal').checked = Boolean(trip.shareOptions?.hideJournal);
+    document.getElementById('shareCollaboratorsInput').value = (trip.collaborators || []).join(', ');
+    document.getElementById('shareLinkInput').value = trip.shareId ? `${location.origin}${location.pathname}?share=${encodeURIComponent(trip.shareId)}` : '';
+    document.getElementById('shareDialog')?.showModal();
+  }
+
+  async function createPublicShareFromDialog() {
+    if (!requireCloudReady()) return;
+    const trip = state.trips.find(item => item.id === pendingShareTripId) || activeTrip();
+    if (!trip) return showStatus('Sélectionne un voyage à partager.');
     try {
-      const payload = await CloudSync.publishTripShare(trip);
+      const options = {
+        hideBudget: Boolean(document.getElementById('shareHideBudget')?.checked),
+        hideNotes: Boolean(document.getElementById('shareHideNotes')?.checked),
+        hideJournal: Boolean(document.getElementById('shareHideJournal')?.checked)
+      };
+      const payload = await CloudSync.publishTripShare(trip, options);
       trip.shareId = payload.shareId;
+      trip.shareOptions = options;
       state = Storage.save(state);
       scheduleCloudAutosave();
       const url = `${location.origin}${location.pathname}?share=${encodeURIComponent(payload.shareId)}`;
-      $('#shareLinkInput').value = url;
-      $('#shareDialog').showModal();
-      showStatus('Lien de partage créé.');
+      document.getElementById('shareLinkInput').value = url;
+      showStatus('Lien lecture seule créé.');
     } catch (error) {
       console.error(error);
       showStatus(error.message || 'Partage impossible.');
+    }
+  }
+
+
+  async function createPrivateCollaboration() {
+    if (!requireCloudReady()) return;
+    const trip = state.trips.find(item => item.id === pendingShareTripId) || activeTrip();
+    if (!trip) return showStatus('Sélectionne un voyage à partager.');
+    const emails = String(document.getElementById('shareCollaboratorsInput')?.value || '')
+      .split(',')
+      .map(email => email.trim().toLowerCase())
+      .filter(Boolean);
+    if (!emails.length) return showStatus('Ajoute au moins un email Google pour la collaboration.');
+    try {
+      const payload = await CloudSync.publishCollaborativeTrip(trip, emails);
+      trip.collabId = payload.shareId;
+      trip.collaborators = emails;
+      state = Storage.save(state);
+      scheduleCloudAutosave();
+      const url = `${location.origin}${location.pathname}?collab=${encodeURIComponent(payload.shareId)}`;
+      document.getElementById('shareLinkInput').value = url;
+      showStatus('Lien de collaboration privée créé.');
+    } catch (error) {
+      console.error(error);
+      showStatus(error.message || 'Collaboration impossible. Vérifie les règles Firestore.');
     }
   }
 
@@ -1079,6 +1292,38 @@
       cloudLoading = false;
       renderAll();
       showStatus(error.message || 'Lecture du partage impossible.');
+    }
+  }
+
+
+  async function initCollaborativeMode(collabId) {
+    collabMode = true;
+    currentCollabId = collabId;
+    cloudLoading = true;
+    renderAll();
+    try {
+      if (!CloudSync?.isConfigured()) throw new Error('Firebase n’est pas configuré.');
+      await CloudSync.init();
+      let user = CloudSync.getUser() || await CloudSync.waitForAuthState();
+      if (!user) user = await CloudSync.signIn();
+      if (!user && !CloudSync.getUser()) return;
+      const shared = await CloudSync.loadCollaborativeTrip(collabId);
+      if (!shared?.trip) throw new Error('Voyage collaboratif introuvable ou non autorisé.');
+      const trip = Storage.normalizeTrip(shared.trip);
+      state = Storage.normalizeState({ version: 1, activeTripId: trip.id, settings: state.settings, trips: [trip] });
+      appReady = true;
+      cloudLoading = false;
+      document.body.classList.add('is-collab');
+      renderAll();
+      setupPeriodicAutosave();
+      switchView('dashboard');
+      showStatus('Collaboration privée ouverte. Les modifications sont sauvegardées.');
+    } catch (error) {
+      console.error(error);
+      appReady = false;
+      cloudLoading = false;
+      renderAll();
+      showStatus(error.message || 'Ouverture de la collaboration impossible.');
     }
   }
 
@@ -1134,6 +1379,7 @@
   }
 
   async function handleCloudUserChange(user) {
+    if (collabMode) return;
     if (!user) {
       loadedCloudUid = null;
       appReady = false;
@@ -1150,20 +1396,40 @@
     cloudLoading = true;
     renderAll();
 
-    const backup = await CloudSync.loadState();
+    let backup = null;
+    try {
+      backup = await CloudSync.loadState();
+    } catch (error) {
+      const cached = Storage.loadOfflineCache?.();
+      if (!cached?.state) throw error;
+      state = Storage.save(cached.state);
+      cloudLastSavedAt = cached.savedAt || '';
+      appReady = true;
+      cloudLoading = false;
+      applyTheme(state.settings.theme || 'light');
+      renderAll();
+      updateCloudUi({ user, status: 'Mode hors ligne : dernier état connu affiché.', configured: true });
+      showStatus('Connexion Firebase instable. Affichage du dernier cache hors ligne.');
+      return;
+    }
     if (backup?.state) {
       state = Storage.save(backup.state);
+      Storage.saveOfflineCache?.(state);
       cloudLastSavedAt = backup.clientUpdatedAt || '';
     } else {
       state = Storage.createEmptyState();
       await CloudSync.saveState(state);
+      Storage.saveOfflineCache?.(state);
       cloudLastSavedAt = new Date().toISOString();
     }
 
     appReady = true;
     cloudLoading = false;
     applyTheme(state.settings.theme || 'light');
+    const legalYear = document.getElementById('legalYear');
+    if (legalYear) legalYear.textContent = new Date().getFullYear();
     renderAll();
+    setupPeriodicAutosave();
     updateCloudUi({ user, status: CloudSync.getStatus(), configured: true });
     showStatus('Voyages chargés depuis Firebase. Sauvegarde automatique active.');
   }
@@ -1188,6 +1454,7 @@
 
     document.body.classList.toggle('is-cloud-locked', !readOnlyMode && (!appReady || !user));
     document.body.classList.toggle('is-readonly', readOnlyMode);
+    document.body.classList.toggle('is-collab', collabMode);
 
     if (statusEl) statusEl.textContent = status || (configured ? 'Connexion Google requise.' : 'Firebase non configuré.');
     if (profile) profile.hidden = !user;
@@ -1196,9 +1463,15 @@
     if (email && user) email.textContent = user.email || '';
     if (topButton) {
       topButton.classList.toggle('is-connected', Boolean(user));
-      topButton.textContent = readOnlyMode ? '👁️ Lecture seule' : (user ? '☁️ Connecté' : '☁️ Connexion Google');
+      topButton.classList.toggle('is-readonly-cloud', readOnlyMode);
+      const avatarHtml = user?.photoURL ? `<img class="cloud-mini-avatar" src="${U.escapeHtml(user.photoURL)}" alt="" />` : '<span class="cloud-mini-icon">G</span>';
+      topButton.innerHTML = readOnlyMode
+        ? '<span class="cloud-dot"></span><span><strong>Lecture seule</strong><small>partage</small></span>'
+        : user
+          ? `${avatarHtml}<span><strong>Connecté</strong><small>${U.escapeHtml(user.displayName || user.email || 'Google')}</small></span>`
+          : '<span class="cloud-mini-icon">G</span><span><strong>Connexion</strong><small>Google</small></span>';
     }
-    if (sidebarAccountState) sidebarAccountState.textContent = readOnlyMode ? 'Lecture seule' : (user ? 'Connecté' : 'Connexion requise');
+    if (sidebarAccountState) sidebarAccountState.textContent = readOnlyMode ? 'Lecture seule' : (collabMode ? 'Collaboration privée' : (user ? 'Connecté' : 'Connexion requise'));
     if (signInBtn) {
       signInBtn.disabled = !configured || Boolean(user);
       signInBtn.textContent = user ? 'Connecté avec Google' : 'Se connecter avec Google';
@@ -1262,6 +1535,7 @@
     if (!ok) return;
     try {
       await flushCloudAutosave();
+      clearInterval(periodicAutosaveTimer);
       await CloudSync.signOut();
       state = Storage.createEmptyState();
       appReady = false;
@@ -1278,7 +1552,9 @@
     try {
       const savedState = Storage.save(state);
       state = savedState;
-      await CloudSync.saveState(savedState);
+      Storage.saveOfflineCache?.(savedState);
+      if (collabMode && currentCollabId) await CloudSync.saveCollaborativeTrip(currentCollabId, activeTrip());
+      else await CloudSync.saveState(savedState);
       cloudLastSavedAt = new Date().toISOString();
       updateCloudUi({ status: CloudSync.getStatus() });
       if (!silent) showStatus('Sauvegardé dans Firebase.');
@@ -1294,6 +1570,16 @@
     clearTimeout(cloudAutosaveTimer);
     updateCloudUi({ status: 'Sauvegarde Firebase en attente…' });
     cloudAutosaveTimer = setTimeout(() => saveCloudStateNow(true), delay);
+  }
+
+
+  function setupPeriodicAutosave() {
+    clearInterval(periodicAutosaveTimer);
+    if (!appReady || !CloudSync?.getUser()) return;
+    const minutes = Math.max(1, Math.min(60, Number(state.settings?.autosaveMinutes) || 3));
+    periodicAutosaveTimer = setInterval(() => {
+      saveCloudStateNow(true);
+    }, minutes * 60 * 1000);
   }
 
   async function flushCloudAutosave() {

@@ -153,34 +153,38 @@
     if (!days.length) {
       container.innerHTML = `
         <section class="planner-empty">
-          <h3>Planning jour par jour</h3>
-          <p>Ajoute tes premières étapes pour voir ton voyage sous forme de colonnes.</p>
+          <h3>Planning timeline</h3>
+          <p>Ajoute tes premières étapes pour voir ton voyage sous forme de journées glissables.</p>
         </section>
       `;
       return;
     }
 
     container.innerHTML = `
-      <div class="planner-head">
+      <div class="planner-head planner-head--timeline">
         <div>
-          <p class="eyebrow">Planning</p>
-          <h2>Vue jour par jour</h2>
+          <p class="eyebrow">Planning central</p>
+          <h2>Timeline jour par jour</h2>
+          <p>Glisse une étape vers une autre journée ou ajoute rapidement un bloc.</p>
         </div>
         <span>${days.length} jour(s)</span>
       </div>
-      <div class="planner-columns" role="list" aria-label="Planning jour par jour">
+      <div class="planner-columns planner-columns--timeline" role="list" aria-label="Planning timeline jour par jour">
         ${days.map(day => `
-          <article class="planner-day" role="listitem">
+          <article class="planner-day planner-day--timeline" role="listitem" data-drop-day="${escapeHtml(day.date || '')}">
             <div class="planner-day__head">
               <div>
                 <strong>${escapeHtml(day.title)}</strong>
-                <span>${escapeHtml(day.subtitle)}</span>
+                <small>${escapeHtml(day.subtitle)}</small>
               </div>
               ${day.date ? `<button class="icon-button" title="Ajouter une étape ce jour" data-planner-add="${day.date}">+</button>` : ''}
             </div>
-            <div class="planner-day__body">
+            <div class="planner-quick-actions">
+              ${day.date ? ['activité','restaurant','hôtel','pause','gare','aéroport'].map(type => `<button type="button" data-planner-add-type="${type}" data-planner-add="${day.date}">+ ${type}</button>`).join('') : ''}
+            </div>
+            <div class="planner-day__body" data-drop-body="${escapeHtml(day.date || '')}">
               ${day.steps.length ? day.steps.map((step, index) => `
-                <button class="planner-step" type="button" data-planner-edit="${step.id}">
+                <button class="planner-step planner-step--drag" type="button" draggable="true" data-planner-edit="${step.id}" data-drag-step="${step.id}">
                   <span class="planner-step__dot" style="background:${step.color || '#2563eb'}">${iconForType(step.type)}</span>
                   <span>
                     <strong>${escapeHtml(step.name)}</strong>
@@ -188,7 +192,7 @@
                   </span>
                 </button>
                 ${day.segments[index] ? `
-                  <div class="planner-segment">
+                  <div class="planner-segment planner-segment--timeline">
                     <span>${day.segments[index].modeIcon}</span>
                     <span>${day.segments[index].hasCoordinates ? `${formatDistance(day.segments[index].distance)} · ${formatDuration(day.segments[index].duration)}` : 'coordonnées à compléter'}</span>
                   </div>
@@ -206,9 +210,33 @@
 
     container.querySelectorAll('[data-planner-edit]').forEach(button => {
       button.addEventListener('click', () => actions.editStep?.(button.dataset.plannerEdit));
+      button.addEventListener('dragstart', event => {
+        event.dataTransfer.setData('text/plain', button.dataset.dragStep || button.dataset.plannerEdit);
+        event.dataTransfer.effectAllowed = 'move';
+        button.classList.add('is-dragging');
+      });
+      button.addEventListener('dragend', () => button.classList.remove('is-dragging'));
     });
     container.querySelectorAll('[data-planner-add]').forEach(button => {
-      button.addEventListener('click', () => actions.addStep?.(button.dataset.plannerAdd));
+      button.addEventListener('click', event => {
+        event.stopPropagation();
+        actions.addStep?.(button.dataset.plannerAdd, button.dataset.plannerAddType || 'activité');
+      });
+    });
+    container.querySelectorAll('[data-drop-day], [data-drop-body]').forEach(zone => {
+      zone.addEventListener('dragover', event => {
+        if (!zone.dataset.dropDay && !zone.dataset.dropBody) return;
+        event.preventDefault();
+        zone.classList.add('is-drop-target');
+      });
+      zone.addEventListener('dragleave', () => zone.classList.remove('is-drop-target'));
+      zone.addEventListener('drop', event => {
+        event.preventDefault();
+        zone.classList.remove('is-drop-target');
+        const stepId = event.dataTransfer.getData('text/plain');
+        const date = zone.dataset.dropDay || zone.dataset.dropBody;
+        if (stepId && date) actions.moveStep?.(stepId, date);
+      });
     });
   }
 
