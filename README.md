@@ -1,66 +1,83 @@
-# Travel Planner — Firebase + carte corrigée
+# Travel Planner
 
-Application personnelle de planification de voyages, hébergeable sur GitHub Pages et synchronisée avec Firebase via connexion Google.
+Application web personnelle de planification de voyages, hébergeable sur GitHub Pages, avec connexion Google et sauvegarde automatique Firebase.
 
-## Mise à jour incluse
+## Version actuelle
 
-Cette version corrige la carte et améliore l'affichage des trajets :
+Cette version utilise Firebase comme source principale des données :
 
-- correctif CSS Leaflet intégré localement ;
-- protection contre les cartes blanches ou les tuiles mal positionnées ;
-- recalcul automatique de la taille de la carte à l'ouverture de l'onglet ;
-- affichage des trajets point par point dans le panneau de carte ;
-- style différent selon le transport : voiture, avion, train, bus, vélo, marche, bateau ;
-- possibilité de modifier le mode de transport directement depuis la carte ;
-- recentrage sur un segment en cliquant sur le trajet ;
-- affichage des distances, durées et coûts estimés par segment ;
-- correction de l'enregistrement de l'adresse d'une étape ;
-- recherche de lieu réactivée dans le formulaire d'étape.
+- connexion Google obligatoire ;
+- chargement automatique des voyages depuis Firestore ;
+- sauvegarde transparente après modification ;
+- aucune sauvegarde locale visible ;
+- aucun export/import JSON dans l’interface ;
+- carte OSM intégrée sans Leaflet pour éviter les problèmes de tuiles cassées ;
+- affichage des trajets point par point avec transport différent pour chaque segment : avion, voiture, train, bus, marche, vélo, bateau ou autre ;
+- planning jour par jour inspiré des planificateurs visuels de voyage.
 
-## Fonctionnement de la carte
+## Carte
 
-Le site utilise Leaflet avec OpenStreetMap. Les trajets sont tracés à vol d'oiseau pour rester gratuits et compatibles GitHub Pages, sans API payante ni serveur de routage.
+La carte ne dépend plus de Leaflet. Elle utilise un rendu OSM léger développé directement dans `js/map.js` :
 
-Pour un segment Paris → Tokyo en avion, la carte affiche une ligne de transport aérien. Pour un segment en voiture, train ou bus, elle affiche le même segment avec un style différent et les estimations correspondantes.
+- récupération des tuiles OpenStreetMap ;
+- placement manuel des tuiles ;
+- marqueurs numérotés ;
+- lignes entre les étapes ;
+- ligne courbe pour l’avion ;
+- styles différents selon le transport ;
+- zoom, recentrage et déplacement à la souris ou au doigt ;
+- ouverture d’un segment dans OpenStreetMap.
+
+Cette approche évite le bug où les tuiles Leaflet apparaissaient décalées ou superposées.
+
+## Fichiers principaux
+
+```text
+travel-planner/
+├── index.html
+├── README.md
+├── firestore.rules
+├── css/
+│   └── style.css
+├── js/
+│   ├── app.js
+│   ├── budget.js
+│   ├── firebase-config.js
+│   ├── firebase-sync.js
+│   ├── geocoder.js
+│   ├── itinerary.js
+│   ├── map.js
+│   ├── storage.js
+│   ├── suggestions.js
+│   └── utils.js
+└── assets/
+```
 
 ## Firebase
 
-Le site utilise le document Firestore :
+Le fichier `js/firebase-config.js` doit contenir la vraie configuration Firebase du projet.
 
-```text
-travelPlannerUsers/{uid}
-```
-
-Chaque utilisateur connecté avec Google accède uniquement à ses propres voyages grâce aux règles Firestore.
-
-## Fichiers importants
-
-```text
-index.html
-css/style.css
-js/app.js
-js/map.js
-js/geocoder.js
-js/firebase-config.js
-js/firebase-sync.js
-firestore.rules
-```
-
-Le fichier `js/firebase-config.js` doit contenir la configuration Firebase du projet.
+Les règles Firestore sont fournies dans `firestore.rules`.
 
 ## Publication GitHub Pages
 
-1. Remplacer les fichiers du dépôt par ceux de cette archive.
-2. Conserver le bon `js/firebase-config.js`.
-3. Pousser les modifications sur GitHub.
-4. Attendre la mise à jour GitHub Pages.
-5. Tester : connexion Google, ajout de deux étapes, onglet Carte, bouton Recentrer.
+1. Remplacer les fichiers du dépôt par ceux de cette version.
+2. Vérifier que `js/firebase-config.js` contient bien la configuration Firebase réelle.
+3. Publier sur GitHub Pages.
+4. Ouvrir le site, se connecter avec Google et tester un voyage avec plusieurs étapes.
 
-## Diagnostic carte
+## Test conseillé
 
-Dans l'onglet Carte, le bouton `Diagnostic` indique :
+Créer un voyage avec ces étapes :
 
-- si Leaflet est chargé ;
-- si le CSS carte est appliqué ;
-- si la zone de carte a une taille correcte ;
-- combien d'étapes possèdent des coordonnées.
+1. Aéroport de Paris-Charles-de-Gaulle — transport suivant : avion.
+2. Aéroport international de Tokyo — transport suivant : voiture ou train.
+3. Hôtel à Tokyo.
+
+La page Carte doit afficher :
+
+- une grande carte stable ;
+- les marqueurs numérotés ;
+- un segment avion en pointillés courbé ;
+- un segment voiture/train entre l’aéroport et l’hôtel ;
+- les distances, durées et coûts estimés dans le panneau de gauche.
