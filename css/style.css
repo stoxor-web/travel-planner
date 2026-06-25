@@ -1130,3 +1130,190 @@ body.dark .auth-mini-grid div {
 }
 .compact-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .button--ghost { background: transparent; }
+
+/* Carte — correctif définitif Leaflet + trajets point par point */
+.map-layout {
+  align-items: stretch;
+}
+.map-card {
+  height: calc(100vh - 130px);
+  min-height: 640px;
+  overflow: hidden;
+  isolation: isolate;
+}
+#travelMap {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+/* Copie locale des règles critiques Leaflet.
+   Elle protège la carte si le CSS externe Leaflet ne se charge pas ou si un style global du site le perturbe. */
+.leaflet-pane,
+.leaflet-tile,
+.leaflet-marker-icon,
+.leaflet-marker-shadow,
+.leaflet-tile-container,
+.leaflet-pane > svg,
+.leaflet-pane > canvas,
+.leaflet-zoom-box,
+.leaflet-image-layer,
+.leaflet-layer {
+  position: absolute !important;
+  left: 0;
+  top: 0;
+}
+.leaflet-container {
+  overflow: hidden !important;
+  touch-action: pan-x pan-y;
+  font-family: inherit;
+  background: #dbeafe;
+  outline-offset: 1px;
+}
+.leaflet-tile,
+.leaflet-marker-icon,
+.leaflet-marker-shadow {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.leaflet-tile {
+  filter: inherit;
+  visibility: inherit;
+}
+.leaflet-container img.leaflet-tile,
+.leaflet-container .leaflet-marker-pane img,
+.leaflet-container .leaflet-shadow-pane img {
+  max-width: none !important;
+  max-height: none !important;
+}
+.leaflet-safari .leaflet-tile { image-rendering: -webkit-optimize-contrast; }
+.leaflet-grab { cursor: grab; }
+.leaflet-dragging .leaflet-grab { cursor: grabbing; }
+.leaflet-marker-icon,
+.leaflet-marker-shadow { display: block !important; }
+.leaflet-control {
+  position: relative;
+  z-index: 800;
+  pointer-events: auto;
+  float: left;
+  clear: both;
+}
+.leaflet-top,
+.leaflet-bottom {
+  position: absolute;
+  z-index: 1000;
+  pointer-events: none;
+}
+.leaflet-top { top: 0; }
+.leaflet-right { right: 0; }
+.leaflet-bottom { bottom: 0; }
+.leaflet-left { left: 0; }
+.leaflet-control-container .leaflet-top.leaflet-left { left: 0; top: 0; }
+.leaflet-control-container .leaflet-top.leaflet-right { right: 0; top: 0; }
+.leaflet-control-container .leaflet-bottom.leaflet-left { left: 0; bottom: 0; }
+.leaflet-control-container .leaflet-bottom.leaflet-right { right: 0; bottom: 0; }
+.leaflet-control-zoom,
+.leaflet-control-layers {
+  margin: 12px !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--shadow) !important;
+  overflow: hidden;
+  background: var(--surface);
+}
+.leaflet-control-zoom a {
+  width: 34px !important;
+  height: 34px !important;
+  line-height: 34px !important;
+  color: var(--text) !important;
+  background: var(--surface) !important;
+  border-bottom: 1px solid var(--line) !important;
+  text-decoration: none !important;
+}
+.leaflet-control-zoom a:last-child { border-bottom: 0 !important; }
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  box-shadow: var(--shadow) !important;
+}
+.leaflet-popup-content { margin: 13px 15px !important; line-height: 1.45; }
+.leaflet-overlay-pane svg { max-width: none !important; }
+.leaflet-tile-pane { z-index: 200; }
+.leaflet-overlay-pane { z-index: 400; }
+.leaflet-shadow-pane { z-index: 500; }
+.leaflet-marker-pane { z-index: 600; }
+.leaflet-tooltip-pane { z-index: 650; }
+.leaflet-popup-pane { z-index: 700; }
+
+.map-panel-section {
+  margin-top: 16px;
+}
+.map-routes {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.map-route {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  text-align: left;
+}
+.map-route__icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background: var(--surface-2);
+  font-size: 1.15rem;
+}
+.map-route__body {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+.map-route strong { line-height: 1.25; }
+.map-route small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.map-route select {
+  min-height: 36px;
+  border-radius: 11px;
+  padding: 7px 9px;
+}
+.map-route.is-active {
+  border-color: rgba(37, 99, 235, .55);
+  box-shadow: 0 12px 28px rgba(37, 99, 235, .12);
+}
+.route-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: .78rem;
+  font-weight: 800;
+  width: fit-content;
+}
+
+@media (max-width: 900px) {
+  .map-card { height: 68vh; min-height: 420px; }
+  #travelMap { min-height: 0 !important; }
+}
