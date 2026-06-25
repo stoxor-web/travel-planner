@@ -1,4 +1,4 @@
-# Travel Planner — V4 Application voyage
+# Travel Planner — V4 Firebase opérationnelle
 
 Application web personnelle de planification de voyages, hébergeable sur GitHub Pages et synchronisée avec Firebase via connexion Google.
 
@@ -35,7 +35,7 @@ Le fichier à conserver avec tes vraies clés est :
 js/firebase-config.js
 ```
 
-Aucun fichier `firebase-config.example` n’est nécessaire.
+Le site utilise uniquement ce fichier de configuration.
 
 ## Règles Firestore
 
@@ -50,7 +50,7 @@ Ces règles permettent :
 ## Publication GitHub Pages
 
 1. Remplace les fichiers du dépôt GitHub par ceux de cette archive.
-2. Garde ton `js/firebase-config.js` configuré.
+2. Le fichier `js/firebase-config.js` est déjà configuré pour le projet Firebase indiqué.
 3. Publie sur GitHub Pages.
 4. Ouvre le site.
 5. Connecte-toi avec Google.

@@ -3,11 +3,15 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isSignedInUser(userId) {
-      return request.auth != null && request.auth.uid == userId;
+    function isSignedIn() {
+      return request.auth != null;
     }
 
-    function hasValidBackupShape() {
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function hasValidPrivateState() {
       return request.resource.data.keys().hasOnly([
         'ownerUid',
         'ownerEmail',
@@ -23,17 +27,43 @@ service cloud.firestore {
       && request.resource.data.state is map;
     }
 
+    function hasValidPublicTrip() {
+      return request.resource.data.keys().hasOnly([
+        'ownerUid',
+        'ownerEmail',
+        'public',
+        'schema',
+        'schemaVersion',
+        'shareId',
+        'trip',
+        'clientUpdatedAt',
+        'updatedAt'
+      ])
+      && request.resource.data.ownerUid == request.auth.uid
+      && request.resource.data.public == true
+      && request.resource.data.schema == 'travelPlannerPublicTrip'
+      && request.resource.data.schemaVersion == 1
+      && request.resource.data.shareId is string
+      && request.resource.data.trip is map;
+    }
+
     match /travelPlannerUsers/{userId} {
-      allow read: if isSignedInUser(userId);
-
-      allow create: if isSignedInUser(userId)
-        && hasValidBackupShape();
-
-      allow update: if isSignedInUser(userId)
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && hasValidPrivateState();
+      allow update: if isOwner(userId)
         && resource.data.ownerUid == request.auth.uid
-        && hasValidBackupShape();
+        && hasValidPrivateState();
+      allow delete: if isOwner(userId);
+    }
 
-      allow delete: if isSignedInUser(userId);
+    match /publicTrips/{shareId} {
+      allow read: if resource.data.public == true
+        && resource.data.schema == 'travelPlannerPublicTrip';
+      allow create: if isSignedIn() && hasValidPublicTrip();
+      allow update: if isSignedIn()
+        && resource.data.ownerUid == request.auth.uid
+        && hasValidPublicTrip();
+      allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
     }
 
     match /{document=**} {
