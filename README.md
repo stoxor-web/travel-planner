@@ -1,48 +1,66 @@
-# Travel Planner
+# Travel Planner — Firebase + carte corrigée
 
-Application web personnelle de planification de voyages, hébergée sur GitHub Pages et synchronisée avec Firebase via connexion Google.
+Application personnelle de planification de voyages, hébergeable sur GitHub Pages et synchronisée avec Firebase via connexion Google.
 
-## Fonctionnement actuel
+## Mise à jour incluse
 
-- Connexion Google obligatoire.
-- Données enregistrées dans Cloud Firestore.
-- Un document par utilisateur : `travelPlannerUsers/{uid}`.
-- Création et modification de voyages.
-- Planning jour par jour.
-- Carte interactive OpenStreetMap / Leaflet.
-- Recherche de lieux avec OpenStreetMap Nominatim.
-- Budget, itinéraire, suggestions, préparation et carnet.
+Cette version corrige la carte et améliore l'affichage des trajets :
 
-## Correctif carte
+- correctif CSS Leaflet intégré localement ;
+- protection contre les cartes blanches ou les tuiles mal positionnées ;
+- recalcul automatique de la taille de la carte à l'ouverture de l'onglet ;
+- affichage des trajets point par point dans le panneau de carte ;
+- style différent selon le transport : voiture, avion, train, bus, vélo, marche, bateau ;
+- possibilité de modifier le mode de transport directement depuis la carte ;
+- recentrage sur un segment en cliquant sur le trajet ;
+- affichage des distances, durées et coûts estimés par segment ;
+- correction de l'enregistrement de l'adresse d'une étape ;
+- recherche de lieu réactivée dans le formulaire d'étape.
 
-Cette version renforce fortement la vue Carte :
+## Fonctionnement de la carte
 
-- Leaflet est chargé uniquement quand la vue Carte est ouverte.
-- Deux CDN sont utilisés en secours : unpkg puis cdnjs.
-- La carte est recalculée après changement d’onglet.
-- Les nouveaux types d’étapes ne restent plus masqués par erreur.
-- Si Leaflet ou les tuiles ne se chargent pas, un mode secours affiche les étapes avec des liens OpenStreetMap.
-- Un bouton **Diagnostic** est disponible dans la vue Carte pour vérifier l’état du module.
+Le site utilise Leaflet avec OpenStreetMap. Les trajets sont tracés à vol d'oiseau pour rester gratuits et compatibles GitHub Pages, sans API payante ni serveur de routage.
+
+Pour un segment Paris → Tokyo en avion, la carte affiche une ligne de transport aérien. Pour un segment en voiture, train ou bus, elle affiche le même segment avec un style différent et les estimations correspondantes.
 
 ## Firebase
 
-Le fichier `js/firebase-config.js` contient la configuration du projet Firebase.
+Le site utilise le document Firestore :
 
-Les règles Firestore recommandées sont disponibles dans `firestore.rules`.
+```text
+travelPlannerUsers/{uid}
+```
+
+Chaque utilisateur connecté avec Google accède uniquement à ses propres voyages grâce aux règles Firestore.
+
+## Fichiers importants
+
+```text
+index.html
+css/style.css
+js/app.js
+js/map.js
+js/geocoder.js
+js/firebase-config.js
+js/firebase-sync.js
+firestore.rules
+```
+
+Le fichier `js/firebase-config.js` doit contenir la configuration Firebase du projet.
 
 ## Publication GitHub Pages
 
-1. Remplacer les fichiers du dépôt par ceux du projet.
-2. Garder `js/firebase-config.js` avec les valeurs Firebase du projet.
-3. Vérifier que `stoxor-web.github.io` est autorisé dans Firebase Authentication.
-4. Publier avec GitHub Pages.
-5. Tester avec un compte Google.
+1. Remplacer les fichiers du dépôt par ceux de cette archive.
+2. Conserver le bon `js/firebase-config.js`.
+3. Pousser les modifications sur GitHub.
+4. Attendre la mise à jour GitHub Pages.
+5. Tester : connexion Google, ajout de deux étapes, onglet Carte, bouton Recentrer.
 
-## Test rapide de la carte
+## Diagnostic carte
 
-1. Se connecter avec Google.
-2. Créer un voyage.
-3. Ajouter une étape avec une adresse ou des coordonnées.
-4. Ouvrir l’onglet **Carte**.
-5. Cliquer sur **Recentrer**.
-6. En cas de problème, cliquer sur **Diagnostic**.
+Dans l'onglet Carte, le bouton `Diagnostic` indique :
+
+- si Leaflet est chargé ;
+- si le CSS carte est appliqué ;
+- si la zone de carte a une taille correcte ;
+- combien d'étapes possèdent des coordonnées.
