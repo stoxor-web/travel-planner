@@ -1004,21 +1004,51 @@ body.dark .auth-mini-grid div {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
 }
+.place-category-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+.place-chip {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: var(--surface);
+  color: var(--muted);
+  font-weight: 800;
+  cursor: pointer;
+  transition: .18s ease;
+}
+.place-chip:hover,
+.place-chip.is-active {
+  color: var(--primary);
+  border-color: rgba(37, 99, 235, .42);
+  background: rgba(37, 99, 235, .08);
+}
+.place-search-help {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: .88rem;
+  line-height: 1.45;
+}
 .place-search-status {
   min-height: 20px;
   color: var(--muted);
   font-size: .9rem;
+  margin-top: 8px;
 }
 .place-results {
   display: grid;
   gap: 8px;
-  max-height: 280px;
+  max-height: 320px;
   overflow: auto;
+  padding-right: 2px;
 }
 .place-result,
 .place-result-empty {
   width: 100%;
-  padding: 12px;
+  padding: 13px;
   border: 1px solid var(--line);
   border-radius: 15px;
   background: var(--surface);
@@ -1027,11 +1057,14 @@ body.dark .auth-mini-grid div {
 }
 .place-result {
   display: grid;
-  gap: 4px;
+  gap: 5px;
+  cursor: pointer;
   transition: .18s ease;
 }
-.place-result:hover {
-  border-color: rgba(37, 99, 235, .45);
+.place-result:hover,
+.place-result:focus-visible {
+  border-color: rgba(37, 99, 235, .5);
+  box-shadow: 0 14px 26px rgba(37, 99, 235, .10);
   transform: translateY(-1px);
 }
 .place-result strong { font-size: .98rem; }
@@ -1045,6 +1078,8 @@ body.dark .auth-mini-grid div {
 
 @media (max-width: 520px) {
   .place-search-row { grid-template-columns: 1fr; }
+  .place-category-row { gap: 6px; }
+  .place-chip { flex: 1 1 auto; text-align: center; }
 }
 
 .map-message {
@@ -1057,4 +1092,114 @@ body.dark .auth-mini-grid div {
   color: var(--muted);
   background: var(--surface-2);
   border-radius: var(--radius);
+}
+
+/* Correctif carte robuste */
+#travelMap {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 25% 20%, rgba(37, 99, 235, .12), transparent 28%),
+    radial-gradient(circle at 70% 75%, rgba(16, 185, 129, .12), transparent 26%),
+    var(--surface-soft);
+}
+
+#travelMap .leaflet-container,
+#travelMap.leaflet-container {
+  font-family: inherit;
+}
+
+.map-message {
+  position: absolute;
+  z-index: 500;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: min(92%, 460px);
+  padding: 14px 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  text-align: center;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+body.dark .map-message {
+  background: rgba(15, 23, 42, .94);
+}
+
+.map-message.is-error {
+  border-color: rgba(220, 38, 38, .28);
+  color: #b91c1c;
+}
+
+.map-message.is-muted {
+  color: var(--muted);
+}
+
+.static-map-fallback {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background:
+    linear-gradient(135deg, rgba(37, 99, 235, .08), rgba(16, 185, 129, .10)),
+    repeating-linear-gradient(45deg, rgba(148, 163, 184, .10) 0 1px, transparent 1px 28px);
+}
+
+.static-map-fallback__route {
+  position: absolute;
+  inset: 18% 12%;
+  border: 3px dashed rgba(37, 99, 235, .42);
+  border-left-color: transparent;
+  border-bottom-color: transparent;
+  border-radius: 999px;
+  transform: rotate(-10deg);
+}
+
+.static-map-fallback__content {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  gap: 18px;
+  padding: 22px;
+}
+
+.static-map-fallback .map-message {
+  position: static;
+  transform: none;
+}
+
+.static-map-list {
+  width: min(520px, 92%);
+  max-height: 48%;
+  overflow: auto;
+  display: grid;
+  gap: 10px;
+}
+
+.static-map-list button {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .92);
+  color: var(--text);
+  padding: 12px 14px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+body.dark .static-map-list button {
+  background: rgba(15, 23, 42, .92);
+}
+
+.static-map-list small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
 }
