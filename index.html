@@ -34,7 +34,7 @@
 
       <div class="sidebar__footer">
         <button class="button button--primary full" id="newTripBtn">+ Nouveau voyage</button>
-        <small>Compte Google</small>
+        <small id="sidebarAccountState">Connexion requise</small>
       </div>
     </aside>
 
@@ -46,7 +46,7 @@
         </div>
         <div class="topbar__actions">
           <select id="tripSelector" class="input" aria-label="Voyage sélectionné"></select>
-          <button class="button button--cloud" id="cloudAuthBtn" title="Compte Google"><span class="cloud-dot"></span><span>Compte</span></button>
+          <button class="button button--cloud" id="cloudAuthBtn" title="Connexion Google"><span class="cloud-dot"></span><span>Connexion</span></button>
           <button class="button" id="themeToggle" title="Basculer le thème">🌙</button>
         </div>
       </header>
@@ -58,11 +58,10 @@
           <div>
             <p class="eyebrow">Vue d’ensemble</p>
             <h2>Mes voyages</h2>
-            <p>Crée, organise et retrouve tes itinéraires depuis ton compte Google.</p>
+            <p>Crée et retrouve tes itinéraires en quelques secondes.</p>
           </div>
           <div class="hero-card__actions">
             <button class="button button--primary" id="createFirstTripBtn">Créer un voyage</button>
-            <button class="button" id="loadDemoBtn">Charger un exemple</button>
           </div>
         </div>
 
@@ -265,33 +264,27 @@
           <aside class="panel cloud-summary-card">
             <p class="eyebrow">Compte</p>
             <h2>Google</h2>
-            <p id="cloudSyncMeta" class="sync-meta">Connecte-toi pour utiliser le site.</p>
+            <p id="cloudSyncMeta" class="sync-meta">Non connecté</p>
           </aside>
         </div>
 
-        <div class="panel mt cloud-panel cloud-panel--premium">
-          <div class="cloud-hero">
-            <div class="cloud-hero__copy">
-              <p class="eyebrow">Compte Google</p>
-              <h2>Connexion</h2>
-            </div>
-            <div class="cloud-hero__visual" aria-hidden="true">
-              <span class="orbit orbit--one"></span>
-              <span class="orbit orbit--two"></span>
-              <span class="cloud-lock">🔐</span>
-              <span class="cloud-plane">✈️</span>
+        <div class="panel mt cloud-panel cloud-panel--compact">
+          <div class="panel__header">
+            <div>
+              <p class="eyebrow">Connexion</p>
+              <h2>Compte Google</h2>
             </div>
           </div>
 
           <div id="cloudStatus" class="cloud-status cloud-status--idle" role="status">
             <span class="cloud-status__dot"></span>
-            <span>Connecte-toi pour continuer.</span>
+            <span>Connexion requise.</span>
           </div>
 
           <div class="cloud-profile-card" id="cloudProfile" hidden>
             <img id="cloudAvatar" alt="Photo du compte Google" />
             <div>
-              <small>Connecté avec</small>
+              <small>Compte connecté</small>
               <strong id="cloudUserName">Compte Google</strong>
               <span id="cloudUserEmail"></span>
             </div>
@@ -307,8 +300,8 @@
 
           <div class="cloud-danger-zone">
             <div>
-              <strong>Supprimer mes données</strong>
-              <small>Efface les voyages liés à ce compte.</small>
+              <strong>Réinitialiser le compte</strong>
+              <small>Supprime les voyages enregistrés.</small>
             </div>
             <button class="button button--danger" id="deleteCloudDataBtn">Supprimer</button>
           </div>
