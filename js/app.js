@@ -690,7 +690,10 @@
     const trip = activeTrip();
     MapView.renderFilters($('#mapFilters'), trip, () => renderMap());
     MapView.renderMapSteps($('#mapStepsList'), trip);
-    MapView.updateMap(trip, state.settings);
+    if (currentView === 'map') {
+      MapView.updateMap(trip, state.settings);
+      MapView.invalidate(140);
+    }
   }
 
   function bindCloudActions() {
