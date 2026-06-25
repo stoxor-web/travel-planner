@@ -46,7 +46,7 @@
         </div>
         <div class="topbar__actions">
           <select id="tripSelector" class="input" aria-label="Voyage sélectionné"></select>
-          <button class="button" id="cloudAuthBtn" title="Connexion Google / sauvegarde Firebase">☁️ Cloud</button>
+          <button class="button button--cloud" id="cloudAuthBtn" title="Connexion Google / sauvegarde Firebase"><span class="cloud-dot"></span><span>Connexion Google</span></button>
           <button class="button" id="themeToggle" title="Basculer le thème">🌙</button>
         </div>
       </header>
@@ -273,31 +273,58 @@
           </aside>
         </div>
 
-        <div class="panel mt cloud-panel">
-          <div class="panel__header">
-            <div>
+        <div class="panel mt cloud-panel cloud-panel--premium">
+          <div class="cloud-hero">
+            <div class="cloud-hero__copy">
               <p class="eyebrow">Compte Google</p>
-              <h2>Sauvegarde Firebase automatique</h2>
+              <h2>Connexion sécurisée à ton espace voyage</h2>
+              <p>Une fois connecté, tes voyages sont chargés depuis Firebase et chaque modification est sauvegardée automatiquement, sans export manuel.</p>
             </div>
-            <button class="button button--primary" id="cloudSignInBtn">Se connecter avec Google</button>
+            <div class="cloud-hero__visual" aria-hidden="true">
+              <span class="orbit orbit--one"></span>
+              <span class="orbit orbit--two"></span>
+              <span class="cloud-lock">🔐</span>
+              <span class="cloud-plane">✈️</span>
+            </div>
           </div>
 
-          <div id="cloudStatus" class="cloud-status" role="status">Connexion Google requise.</div>
+          <div id="cloudStatus" class="cloud-status cloud-status--idle" role="status">
+            <span class="cloud-status__dot"></span>
+            <span>Connexion Google requise.</span>
+          </div>
 
-          <div class="cloud-profile" id="cloudProfile" hidden>
+          <div class="cloud-profile-card" id="cloudProfile" hidden>
             <img id="cloudAvatar" alt="Photo du compte Google" />
             <div>
+              <small>Connecté avec</small>
               <strong id="cloudUserName">Compte Google</strong>
-              <small id="cloudUserEmail"></small>
+              <span id="cloudUserEmail"></span>
             </div>
           </div>
 
-          <div class="cloud-actions">
+          <div class="cloud-login-actions">
+            <button class="button button--google" id="cloudSignInBtn">
+              <span class="google-mark">G</span>
+              <span>Se connecter avec Google</span>
+            </button>
             <button class="button" id="cloudSignOutBtn">Déconnexion</button>
+          </div>
+
+          <div class="cloud-steps" aria-label="Fonctionnement de la synchronisation">
+            <div><span>1</span><strong>Connexion</strong><small>Compte Google vérifié par Firebase Auth.</small></div>
+            <div><span>2</span><strong>Chargement</strong><small>Voyages récupérés depuis Firestore.</small></div>
+            <div><span>3</span><strong>Auto-save</strong><small>Chaque modification est envoyée au cloud.</small></div>
+          </div>
+
+          <div class="cloud-danger-zone">
+            <div>
+              <strong>Zone sensible</strong>
+              <small>Cette action supprime les voyages du compte connecté dans Firebase.</small>
+            </div>
             <button class="button button--danger" id="deleteCloudDataBtn">Supprimer mes données Firebase</button>
           </div>
 
-          <p class="cloud-note">Aucun bouton d’export ou d’import n’est nécessaire : après connexion, Firebase charge tes voyages et sauvegarde automatiquement les changements.</p>
+          <p class="cloud-note">Le site reste hébergé sur GitHub Pages. Les données personnelles sont liées au compte Google connecté et stockées dans Cloud Firestore.</p>
         </div>
       </section>
     </main>
