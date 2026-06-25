@@ -36,6 +36,7 @@ service cloud.firestore {
         'schemaVersion',
         'shareId',
         'trip',
+        'options',
         'clientUpdatedAt',
         'updatedAt'
       ])
@@ -56,6 +57,33 @@ service cloud.firestore {
       allow delete: if isOwner(userId);
     }
 
+
+    function hasValidCollaborativeTrip() {
+      return request.resource.data.keys().hasOnly([
+        'ownerUid',
+        'ownerEmail',
+        'collaborators',
+        'schema',
+        'schemaVersion',
+        'shareId',
+        'trip',
+        'clientUpdatedAt',
+        'updatedAt'
+      ])
+      && request.resource.data.ownerUid == request.auth.uid
+      && request.resource.data.schema == 'travelPlannerCollaborativeTrip'
+      && request.resource.data.schemaVersion == 1
+      && request.resource.data.shareId is string
+      && request.resource.data.collaborators is list
+      && request.resource.data.trip is map;
+    }
+
+    function canAccessSharedTrip() {
+      return isSignedIn()
+        && (resource.data.ownerUid == request.auth.uid
+          || request.auth.token.email in resource.data.collaborators);
+    }
+
     match /publicTrips/{shareId} {
       allow read: if resource.data.public == true
         && resource.data.schema == 'travelPlannerPublicTrip';
@@ -63,6 +91,13 @@ service cloud.firestore {
       allow update: if isSignedIn()
         && resource.data.ownerUid == request.auth.uid
         && hasValidPublicTrip();
+      allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+
+    match /sharedTrips/{shareId} {
+      allow read, update: if canAccessSharedTrip();
+      allow create: if isSignedIn() && hasValidCollaborativeTrip();
       allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
     }
 

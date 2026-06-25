@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="description" content="Application personnelle de planification de voyages avec connexion Google." />
   <meta name="theme-color" content="#2563eb" />
-  <title>Travel Planner — Planificateur de voyages personnel</title>
+  <title>Travel Planner — Lucas S. Edition</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -15,7 +15,7 @@
         <span class="brand__icon">✈</span>
         <span>
           <strong>Travel Planner</strong>
-          <small>Mes voyages</small>
+          <small>by Lucas S.</small>
         </span>
       </a>
 
@@ -44,6 +44,10 @@
           <h1 id="pageTitle">Tableau de bord</h1>
         </div>
         <div class="topbar__actions">
+          <div class="global-search">
+            <input id="globalSearchInput" class="input" type="search" placeholder="Rechercher : ville, dépense, note..." aria-label="Recherche globale" />
+            <div id="globalSearchResults" class="search-results" hidden></div>
+          </div>
           <select id="tripSelector" class="input" aria-label="Voyage sélectionné"></select>
           <button class="button button--cloud" id="cloudAuthBtn" title="Connexion Google"><span class="cloud-dot"></span><span>Connexion</span></button>
           <button class="button" id="themeToggle" title="Basculer le thème">🌙</button>
@@ -57,7 +61,7 @@
           <div>
             <p class="eyebrow">Planificateur visuel</p>
             <h2>Construis ton voyage jour par jour</h2>
-            <p>Itinéraire, carte, budget et carnet restent synchronisés dans ton compte Google.</p>
+            <p>Un cockpit de voyage conçu pour préparer, suivre et partager ton itinéraire avec une lecture rapide, élégante et utile pendant le séjour.</p>
           </div>
           <div class="hero-card__actions">
             <button class="button button--primary" id="createFirstTripBtn">Créer un voyage</button>
@@ -72,6 +76,13 @@
             <h2>Tableau de bord</h2>
           </div>
         </div>
+        <div class="section-title section-title--compact">
+          <div>
+            <p class="eyebrow">Démarrage rapide</p>
+            <h2>Modèles de voyage</h2>
+          </div>
+        </div>
+        <div id="tripTemplates" class="template-grid"></div>
         <div id="tripsGrid" class="trips-grid"></div>
       </section>
 
@@ -209,6 +220,7 @@
               <button class="button" id="addExpenseBtn">+ Dépense</button>
             </div>
             <div id="budgetStats" class="stats-grid"></div>
+            <div id="budgetAlerts" class="budget-alerts"></div>
             <div id="budgetDaily" class="budget-daily"></div>
             <div id="budgetPeople" class="budget-people"></div>
             <div class="chart-wrap"><canvas id="budgetChart" width="700" height="320"></canvas></div>
@@ -271,6 +283,7 @@
               </div>
               <button class="button button--primary" id="saveSettingsBtn">Enregistrer</button>
             </div>
+            <label>Sauvegarde automatique (minutes)<input class="input" type="number" data-setting="autosaveMinutes" min="1" max="60" step="1" /></label>
             <label>Vitesse voiture moyenne (km/h)<input class="input" type="number" data-setting="speeds.car" min="10" /></label>
             <label>Vitesse train moyenne (km/h)<input class="input" type="number" data-setting="speeds.train" min="10" /></label>
             <label>Vitesse bus moyenne (km/h)<input class="input" type="number" data-setting="speeds.bus" min="10" /></label>
@@ -328,7 +341,29 @@
           </div>
         </div>
       </section>
+      <footer class="site-footer">
+        <div>
+          <strong>Travel Planner</strong>
+          <span>Planificateur personnel de voyages — service privé en ligne</span>
+        </div>
+        <div class="site-footer__meta">
+          <span>Mentions légales</span>
+          <span>Données protégées par connexion Google</span>
+          <span>Contact : Lucas S.</span>
+          <span>© <span id="legalYear"></span> — Créé par Lucas S.</span>
+        </div>
+      </footer>
     </main>
+  </div>
+
+  <div class="fab-wrap">
+    <div id="fabMenu" class="fab-menu" hidden>
+      <button class="fab-item" id="fabAddTrip">+ Voyage</button>
+      <button class="fab-item" id="fabAddStep">+ Étape</button>
+      <button class="fab-item" id="fabAddExpense">+ Dépense</button>
+      <button class="fab-item" id="fabOpenChecklist">Préparation</button>
+    </div>
+    <button class="fab-main" id="fabMainBtn" aria-label="Actions rapides">+</button>
   </div>
 
 
@@ -346,6 +381,16 @@
           <span class="wizard-number">1</span>
           <h3>Base du voyage</h3>
           <label>Nom<input class="input" name="name" required placeholder="Roadtrip Japon" /></label>
+          <label>Modèle
+            <select class="input" name="template">
+              <option value="custom">Personnalisé</option>
+              <option value="citybreak">City break</option>
+              <option value="roadtrip">Roadtrip</option>
+              <option value="avion">Voyage en avion</option>
+              <option value="family">Voyage en famille</option>
+              <option value="adventure">Aventure / nature</option>
+            </select>
+          </label>
           <label>Zone / pays<input class="input" name="area" placeholder="Japon, Italie du Nord..." /></label>
           <label>Départ<input class="input" name="startDate" type="date" /></label>
           <label>Retour<input class="input" name="endDate" type="date" /></label>
@@ -388,13 +433,23 @@
   </dialog>
 
   <dialog id="shareDialog" class="modal">
-    <form method="dialog" class="modal__content confirm-box">
-      <h2>Partager en lecture seule</h2>
-      <p>Copie ce lien pour afficher le voyage sans autoriser les modifications.</p>
-      <input class="input" id="shareLinkInput" readonly />
+    <form method="dialog" class="modal__content confirm-box share-options-box">
+      <p class="eyebrow">Partage</p>
+      <h2>Partager le voyage</h2>
+      <p>Crée un lien de consultation propre. Les informations sensibles peuvent être masquées avant publication.</p>
+      <div class="share-options-grid">
+        <label class="chip-check"><input type="checkbox" id="shareHideBudget" /> <span>Masquer le budget</span></label>
+        <label class="chip-check"><input type="checkbox" id="shareHideNotes" /> <span>Masquer les notes privées</span></label>
+        <label class="chip-check"><input type="checkbox" id="shareHideJournal" /> <span>Masquer le carnet</span></label>
+      </div>
+      <label class="wide">Collaboration privée — emails autorisés<input class="input" id="shareCollaboratorsInput" placeholder="ami@gmail.com, proche@gmail.com" /></label>
+      <small class="muted">La collaboration privée prépare une version éditable limitée aux comptes indiqués. Le lien public reste en lecture seule.</small>
+      <input class="input" id="shareLinkInput" readonly placeholder="Le lien apparaîtra ici" />
       <menu class="modal__actions">
         <button class="button" value="cancel">Fermer</button>
-        <button type="button" class="button button--primary" id="copyShareLinkBtn">Copier</button>
+        <button type="button" class="button" id="createPublicShareBtn">Créer lien lecture seule</button>
+        <button type="button" class="button" id="createPrivateShareBtn">Créer collaboration</button>
+        <button type="button" class="button button--primary" id="copyShareLinkBtn">Copier le lien</button>
       </menu>
     </form>
   </dialog>
