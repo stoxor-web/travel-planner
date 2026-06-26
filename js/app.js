@@ -1,567 +1,108 @@
-(function () {
-  'use strict';
-
-  const U = window.TravelUtils;
-  const Storage = window.TravelStorage;
-  const Budget = window.TravelBudget;
-  const Itinerary = window.TravelItinerary;
-  const Suggestions = window.TravelSuggestions;
-  const MapView = window.TravelMap;
-  const Cloud = window.TravelCloudSync;
-
-  const APP_VERSION = 'V4.12 — réparation stable';
-  const $ = s => document.querySelector(s);
-  const $$ = s => [...document.querySelectorAll(s)];
-  const byId = id => document.getElementById(id);
-
-  let state = Storage.load();
-  let cloudLoading = true;
-  let appReady = false;
-  let currentView = 'dashboard';
-  let autosaveTimer = null;
-  let autosaveInterval = null;
-  let lastSavedAt = '';
-  let communityTrips = [];
-
-  const titles = {
-    dashboard: 'Tableau de bord',
-    today: 'Aujourd’hui',
-    community: 'Communauté',
-    trip: 'Créer ou modifier un voyage',
-    map: 'Carte du voyage',
-    itinerary: 'Planning',
-    budget: 'Budget',
-    suggestions: 'Suggestions',
-    preparation: 'Préparation',
-    journal: 'Carnet de voyage',
-    settings: 'Paramètres'
-  };
-
-  function init() {
-    try {
-      populateStaticSelects();
-      bindNavigation();
-      bindActions();
-      bindGeocoder();
-      byId('legalYear') && (byId('legalYear').textContent = new Date().getFullYear());
-      applyTheme(state.settings?.theme || 'light');
-      renderAll();
-      switchView(location.hash?.replace('#', '') || 'dashboard', { replace: true });
-      initCloud();
-    } catch (error) {
-      console.error(error);
-      emergencyRender(error);
-    }
-  }
-
-  function emergencyRender(error) {
-    const main = $('.main') || document.body;
-    main.innerHTML = `<section class="panel"><p class="eyebrow">Réparation</p><h1>Travel Planner</h1><p>Une erreur a été interceptée au démarrage.</p><pre>${U.escapeHtml(error?.message || String(error))}</pre><button class="button button--primary" onclick="location.reload()">Recharger</button></section>`;
-  }
-
-  function activeTrip() { return appReady ? Storage.getTrip(state) : null; }
-  function hasUser() { return Boolean(Cloud?.getUser?.()); }
-  function safeArray(value) { return Array.isArray(value) ? value : []; }
-
-  function populateStaticSelects() {
-    const type = $('#stepForm select[name="type"]');
-    if (type) type.innerHTML = U.placeTypes.map(t => `<option value="${t}">${t}</option>`).join('');
-    const cat = $('#expenseForm select[name="category"]');
-    if (cat) cat.innerHTML = U.expenseCategories.map(c => `<option value="${c}">${c}</option>`).join('');
-  }
-
-  function bindNavigation() {
-    $$('[data-view-link]').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.viewLink)));
-    window.addEventListener('hashchange', () => switchView(location.hash.replace('#', '') || 'dashboard', { fromHash: true }));
-  }
-
-  function bindActions() {
-    on('newTripBtn', 'click', () => requireReady() && openWizardOrCreate());
-    on('createFirstTripBtn', 'click', () => requireReady() && openWizardOrCreate());
-    on('openWizardBtn', 'click', () => requireReady() && openWizard());
-    on('tripWizardForm', 'submit', saveWizard);
-    on('tripSelector', 'change', e => { if (!requireReady()) return; state.activeTripId = e.target.value; persist('Voyage sélectionné.'); });
-    on('themeToggle', 'click', () => { state.settings.theme = document.body.classList.contains('dark') ? 'light' : 'dark'; applyTheme(state.settings.theme); persist(); });
-    on('tripForm', 'submit', saveTripForm);
-    on('addStepBtn', 'click', () => requireReady() && openStepDialog());
-    on('stepForm', 'submit', saveStepForm);
-    on('addExpenseBtn', 'click', () => requireReady() && openExpenseDialog());
-    on('expenseForm', 'submit', saveExpenseForm);
-    on('fitMapBtn', 'click', () => MapView.fitBounds());
-    on('refreshItineraryBtn', 'click', renderItinerary);
-    on('optimizeBtn', 'click', optimizeActiveTrip);
-    on('addChecklistBlockBtn', 'click', addChecklistBlock);
-    on('saveSettingsBtn', 'click', saveSettings);
-    on('cloudAuthBtn', 'click', handleCloudButton);
-    on('cloudSignInBtn', 'click', handleSignIn);
-    on('cloudSignOutBtn', 'click', handleSignOut);
-    on('deleteCloudDataBtn', 'click', deleteCloudData);
-    on('communityPublishBtn', 'click', openCommunityPublishDialog);
-    on('communityRefreshBtn', 'click', loadCommunity);
-    on('communityPublishForm', 'submit', publishCommunity);
-    ['communitySearchInput', 'communityCountryFilter', 'communityCategoryFilter', 'communitySortFilter'].forEach(id => on(id, 'input', renderCommunity));
-    on('createPublicShareBtn', 'click', createPublicShare);
-    on('createPrivateShareBtn', 'click', createPrivateShare);
-    on('copyShareLinkBtn', 'click', () => copyText(byId('shareLinkInput')?.value));
-    on('globalSearchInput', 'input', renderGlobalSearch);
-    on('fabMainBtn', 'click', toggleFab);
-    on('fabAddTrip', 'click', () => { toggleFab(false); openWizardOrCreate(); });
-    on('fabAddStep', 'click', () => { toggleFab(false); openStepDialog(); });
-    on('fabAddExpense', 'click', () => { toggleFab(false); openExpenseDialog(); });
-    on('fabOpenToday', 'click', () => { toggleFab(false); switchView('today'); });
-    on('fabOpenChecklist', 'click', () => { toggleFab(false); switchView('preparation'); });
-    $$('[data-close-dialog]').forEach(btn => btn.addEventListener('click', () => closeDialog(btn.dataset.closeDialog)));
-    window.addEventListener('resize', () => MapView.invalidate());
-    bindStepDateLogic();
-  }
-
-  function on(id, event, handler) { const el = byId(id); if (el) el.addEventListener(event, handler); }
-  function closeDialog(id) { const dialog = byId(id); if (dialog?.open) dialog.close('cancel'); }
-  function openDialog(id) { const dialog = byId(id); if (dialog && !dialog.open) dialog.showModal(); }
-
-  function switchView(view, options = {}) {
-    if (String(view || '').startsWith('share/')) view = 'dashboard';
-    if (!titles[view]) view = 'dashboard';
-    if (!appReady && !['dashboard', 'settings', 'community'].includes(view)) view = 'dashboard';
-    currentView = view;
-    if (!options.fromHash) {
-      const newHash = `#${view}`;
-      if (options.replace) history.replaceState(null, '', newHash); else if (location.hash !== newHash) location.hash = view;
-    }
-    $$('.view').forEach(section => section.classList.toggle('is-visible', section.id === `view-${view}`));
-    $$('.nav-item').forEach(item => item.classList.toggle('is-active', item.dataset.viewLink === view));
-    if (byId('pageTitle')) byId('pageTitle').textContent = titles[view];
-    if (view === 'map') { MapView.initMap(); renderMap(); MapView.invalidate(); }
-    if (view === 'budget') renderBudget();
-    if (view === 'suggestions') renderSuggestions();
-    if (view === 'itinerary') renderItinerary();
-    if (view === 'today') renderToday();
-    if (view === 'community') renderCommunity();
-  }
-
-  function renderAll() {
-    safeRender(renderTripSelector);
-    safeRender(renderDashboard);
-    safeRender(renderToday);
-    safeRender(renderCommunity);
-    safeRender(renderTripForm);
-    safeRender(renderSteps);
-    safeRender(renderItinerary);
-    safeRender(renderBudget);
-    safeRender(renderSuggestions);
-    safeRender(renderChecklists);
-    safeRender(renderJournal);
-    safeRender(renderSettings);
-    safeRender(renderMap);
-    updateCloudUi();
-  }
-  function safeRender(fn) { try { fn(); } catch (e) { console.error(`Erreur ${fn.name}`, e); showStatus(`Erreur ${fn.name}: ${e.message}`); } }
-
-  function requireReady() {
-    if (appReady && hasUser()) return true;
-    showStatus('Connecte-toi avec Google pour utiliser le planificateur.');
-    handleSignIn();
-    return false;
-  }
-
-  function showStatus(message) {
-    const banner = byId('statusBanner');
-    if (!banner) return;
-    banner.textContent = message || '';
-    banner.hidden = !message;
-    clearTimeout(showStatus.timer);
-    if (message) showStatus.timer = setTimeout(() => { banner.hidden = true; }, 3500);
-  }
-
-  function applyTheme(theme) {
-    document.body.classList.toggle('dark', theme === 'dark');
-    if (byId('themeToggle')) byId('themeToggle').textContent = theme === 'dark' ? '☀️' : '🌙';
-  }
-
-  function renderTripSelector() {
-    const sel = byId('tripSelector');
-    if (!sel) return;
-    const trips = safeArray(state.trips);
-    sel.innerHTML = trips.length ? trips.map(t => `<option value="${t.id}">${U.escapeHtml(t.name)}</option>`).join('') : '<option value="">Aucun voyage</option>';
-    sel.value = state.activeTripId || '';
-    sel.disabled = !appReady;
-  }
-
-  function tripScore(trip) { return Suggestions.analyzeTrip(trip, state.settings).globalScore || 0; }
-  function coverStyle(trip) {
-    const img = trip?.coverImage;
-    return img ? `style="background-image:linear-gradient(120deg,rgba(4,16,36,.72),rgba(14,165,163,.45)),url('${U.escapeHtml(img)}')"` : '';
-  }
-
-  function renderDashboard() {
-    const grid = byId('tripsGrid');
-    const focus = byId('dashboardFocus');
-    const templates = byId('tripTemplates');
-    if (!grid || !focus) return;
-
-    if (cloudLoading) {
-      focus.innerHTML = `<section class="panel premium-focus"><p class="eyebrow">Chargement</p><h2>Connexion à Firebase…</h2><p>Le site prépare tes voyages synchronisés.</p></section>`;
-      grid.innerHTML = '';
-      return;
-    }
-    if (!hasUser() || !appReady) {
-      focus.innerHTML = `<section class="login-gate login-gate--premium"><div class="login-gate__icon">✈️</div><h2>Connecte-toi avec Google</h2><p>Travel Planner synchronise tes voyages avec Firebase pour les retrouver sur tous tes appareils.</p><button class="button button--primary" id="dashboardSignInBtn">Continuer avec Google</button></section>`;
-      byId('dashboardSignInBtn')?.addEventListener('click', handleSignIn);
-      grid.innerHTML = '';
-      if (templates) templates.innerHTML = '';
-      return;
-    }
-    const trip = activeTrip();
-    const budget = Budget.computeBudget(trip);
-    const alerts = Suggestions.analyzeTrip(trip, state.settings).suggestions.filter(s => s.level !== 'success');
-    if (!trip) {
-      focus.innerHTML = `<section class="panel premium-focus"><p class="eyebrow">Bienvenue</p><h2>Crée ton premier voyage</h2><p>Utilise l’assistant pour générer ton planning, tes checklists et ton budget.</p><button class="button button--primary" id="emptyCreateBtn">Créer un voyage</button></section>`;
-      byId('emptyCreateBtn')?.addEventListener('click', openWizardOrCreate);
-      grid.innerHTML = '<div class="empty-state">Aucun voyage pour ce compte Google.</div>';
-    } else {
-      focus.innerHTML = `<section class="dashboard-command panel" ${coverStyle(trip)}><div><p class="eyebrow">Voyage actif</p><h2>${U.escapeHtml(trip.name)}</h2><p>${U.escapeHtml(trip.area || 'Destination à préciser')} · ${U.formatDate(trip.startDate)} → ${U.formatDate(trip.endDate)}</p></div><div class="dashboard-command__stats"><span><strong>${tripScore(trip)}%</strong> prêt</span><span><strong>${safeArray(trip.steps).length}</strong> étapes</span><span><strong>${U.formatMoney(budget.total, trip.currency)}</strong> prévu</span><span><strong>${alerts.length}</strong> alerte(s)</span></div><div class="button-row"><button class="button button--primary" data-go="today">Mode voyage</button><button class="button" data-go="itinerary">Planning</button><button class="button" data-go="budget">Budget</button><button class="button" data-open-share>Partager</button></div></section>`;
-      focus.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => switchView(b.dataset.go)));
-      focus.querySelector('[data-open-share]')?.addEventListener('click', () => openDialog('shareDialog'));
-    }
-    renderTemplates(templates);
-    const trips = safeArray(state.trips);
-    grid.innerHTML = trips.map(tripCard).join('');
-    grid.querySelectorAll('[data-open-trip]').forEach(b => b.addEventListener('click', () => { state.activeTripId = b.dataset.openTrip; persist(); switchView('trip'); }));
-    grid.querySelectorAll('[data-duplicate-trip]').forEach(b => b.addEventListener('click', () => { state = Storage.duplicateTrip(state, b.dataset.duplicateTrip); persist('Voyage dupliqué.'); }));
-    grid.querySelectorAll('[data-delete-trip]').forEach(b => b.addEventListener('click', () => deleteTrip(b.dataset.deleteTrip)));
-  }
-
-  function tripCard(trip) {
-    const budget = Budget.computeBudget(trip);
-    const score = tripScore(trip);
-    const alertCount = Suggestions.analyzeTrip(trip, state.settings).suggestions.filter(s => s.level === 'danger' || s.level === 'warning').length;
-    return `<article class="trip-card trip-card--cover" ${coverStyle(trip)}><div class="trip-card__top"><div><span class="badge">${U.escapeHtml(trip.status)}</span><h3>${U.escapeHtml(trip.name)}</h3></div><strong>${score}%</strong></div><p>${U.escapeHtml(trip.area || 'Zone non renseignée')}</p><div class="trip-card__meta"><span>📅 ${U.formatDate(trip.startDate)} → ${U.formatDate(trip.endDate)}</span><span>📍 ${safeArray(trip.steps).length} étape(s)</span><span>💶 ${U.formatMoney(budget.total, trip.currency)}${trip.maxBudget ? ` / ${U.formatMoney(trip.maxBudget, trip.currency)}` : ''}</span><span>💡 ${alertCount} alerte(s)</span></div><div class="trip-card__actions"><button class="button button--primary" data-open-trip="${trip.id}">Continuer</button><button class="button" data-duplicate-trip="${trip.id}">Dupliquer</button><button class="button" data-delete-trip="${trip.id}">Supprimer</button></div></article>`;
-  }
-
-  function renderTemplates(container) {
-    if (!container || safeArray(state.trips).length > 0) { if (container) container.innerHTML = ''; return; }
-    const items = [
-      ['roadtrip', '🚗 Roadtrip', 'Étapes, trajets voiture, budget carburant.'],
-      ['citybreak', '🏙️ City break', 'Planning court, hôtel, visites et restaurants.'],
-      ['avion', '✈️ Voyage en avion', 'Aéroports, transferts et marge horaire.'],
-      ['family', '👨‍👩‍👧 Famille', 'Rythme doux et checklists complètes.']
-    ];
-    container.innerHTML = items.map(([id, title, text]) => `<button class="template-card" data-template="${id}"><strong>${title}</strong><span>${text}</span></button>`).join('');
-    container.querySelectorAll('[data-template]').forEach(b => b.addEventListener('click', () => createFromTemplate(b.dataset.template)));
-  }
-
-  function renderToday() {
-    const trip = activeTrip();
-    const hero = byId('todayHero');
-    const quick = byId('todayQuickActions');
-    const timeline = byId('todayTimeline');
-    if (!hero || !quick || !timeline) return;
-    if (!trip) { hero.innerHTML = '<div class="empty-state">Crée un voyage pour utiliser le mode Aujourd’hui.</div>'; quick.innerHTML = ''; timeline.innerHTML = ''; return; }
-    const today = new Date().toISOString().slice(0, 10);
-    const steps = U.sortSteps(trip.steps || []);
-    const next = steps.find(s => (s.arrivalDate || trip.startDate || today) >= today) || steps[0];
-    const budget = Budget.computeBudget(trip);
-    const alert = Suggestions.analyzeTrip(trip, state.settings).suggestions.find(s => s.level !== 'success');
-    hero.innerHTML = `<p class="eyebrow">Mode voyage</p><h2>${next ? U.escapeHtml(next.name) : 'Aucune étape'}</h2><p>${next ? `${U.formatDate(next.arrivalDate)}${next.arrivalTime ? ` · ${next.arrivalTime}` : ''} · ${U.escapeHtml(next.address || next.type || '')}` : 'Ajoute une étape pour voir la suite.'}</p><div class="button-row"><button class="button button--primary" data-today-action="map">Voir carte</button><button class="button" data-today-action="expense">Dépense rapide</button><button class="button" data-today-action="note">Note rapide</button></div>`;
-    quick.innerHTML = `<p class="eyebrow">Résumé rapide</p><h3>${U.escapeHtml(trip.name)}</h3><div class="quick-list"><span>Budget : <strong>${U.formatMoney(budget.actualTotal || budget.total, trip.currency)}</strong></span><span>Étapes : <strong>${steps.length}</strong></span><span>Alerte : <strong>${alert ? U.escapeHtml(alert.message.slice(0, 80)) : 'RAS'}</strong></span></div>`;
-    timeline.innerHTML = `<p class="eyebrow">Planning</p><h2>Étapes à venir</h2>${steps.map((s, i) => `<article class="timeline-row"><p class="eyebrow">${U.formatDate(s.arrivalDate)}${s.arrivalTime ? ` · ${s.arrivalTime}` : ''}</p><h3>${i + 1}. ${U.escapeHtml(s.name)}</h3><p>${U.escapeHtml(s.type)} · ${U.escapeHtml(s.address || 'Adresse à compléter')}</p></article>`).join('') || '<div class="empty-state">Aucune étape.</div>'}`;
-    hero.querySelector('[data-today-action="map"]')?.addEventListener('click', () => switchView('map'));
-    hero.querySelector('[data-today-action="expense"]')?.addEventListener('click', () => openExpenseDialog());
-    hero.querySelector('[data-today-action="note"]')?.addEventListener('click', () => { switchView('journal'); });
-  }
-
-  function renderTripForm() {
-    const form = byId('tripForm'); if (!form) return;
-    const trip = activeTrip();
-    form.querySelectorAll('input, textarea, select, button').forEach(el => { if (el.type !== 'submit' && el.id !== 'openWizardBtn') el.disabled = !trip; });
-    if (!trip) { form.reset(); return; }
-    ['name', 'description', 'area', 'coverImage', 'startDate', 'endDate', 'travellers', 'maxBudget', 'currency', 'status', 'style', 'pace', 'interests'].forEach(k => { if (form.elements[k]) form.elements[k].value = trip[k] ?? ''; });
-    if (form.elements.travellersNames) form.elements.travellersNames.value = safeArray(trip.travellersNames).join(', ');
-  }
-
-  function saveTripForm(e) {
-    e.preventDefault(); if (!requireReady()) return;
-    const data = new FormData(e.currentTarget);
-    const trip = activeTrip() || Storage.normalizeTrip({});
-    ['name', 'description', 'area', 'coverImage', 'startDate', 'endDate', 'currency', 'status', 'style', 'pace', 'interests'].forEach(k => trip[k] = String(data.get(k) || ''));
-    trip.travellers = Math.max(1, Number(data.get('travellers')) || 1);
-    trip.travellersNames = Storage.parseNames(data.get('travellersNames'), trip.travellers);
-    trip.travellers = trip.travellersNames.length;
-    trip.maxBudget = Number(data.get('maxBudget')) || 0;
-    state = Storage.upsertTrip(state, trip);
-    persist('Voyage enregistré.');
-  }
-
-  function openWizardOrCreate() { openWizard(); }
-  function openWizard() { byId('tripWizardForm')?.reset(); openDialog('tripWizardDialog'); }
-  function saveWizard(e) {
-    e.preventDefault(); if (!requireReady()) return;
-    const data = new FormData(e.currentTarget);
-    const names = Storage.parseNames(data.get('travellersNames'), 1);
-    const trip = Storage.normalizeTrip({
-      name: data.get('name') || 'Nouveau voyage', area: data.get('area') || '', coverImage: data.get('coverImage') || '', startDate: data.get('startDate') || '', endDate: data.get('endDate') || '', travellersNames: names, travellers: names.length, maxBudget: Number(data.get('maxBudget')) || 0, currency: data.get('currency') || '€', style: data.get('style') || 'équilibré', pace: data.get('pace') || 'normal', interests: data.get('interests') || '', description: data.get('description') || '', status: 'brouillon'
-    });
-    const startPlace = String(data.get('startPlace') || '').trim();
-    const endPlace = String(data.get('endPlace') || '').trim();
-    if (startPlace) trip.steps.push(Storage.normalizeTrip({ steps: [{ name: startPlace, type: 'ville', arrivalDate: trip.startDate, departureDate: trip.startDate, priority: 'indispensable', color: '#2563eb' }] }).steps[0]);
-    if (endPlace) trip.steps.push(Storage.normalizeTrip({ steps: [{ name: endPlace, type: 'ville', arrivalDate: trip.endDate, departureDate: trip.endDate, priority: 'indispensable', color: '#14b8a6', order: 1 }] }).steps[0]);
-    applyTemplate(trip, data.get('template'));
-    state = Storage.upsertTrip(state, trip);
-    closeDialog('tripWizardDialog');
-    persist('Voyage créé.');
-    switchView('trip');
-  }
-  function createFromTemplate(template) { if (!requireReady()) return; byId('tripWizardForm').elements.template.value = template; openWizard(); }
-  function applyTemplate(trip, template) {
-    trip.checklists ||= U.createDefaultChecklists();
-    if (template === 'roadtrip') trip.expenses.push({ id: U.uid('expense'), label: 'Carburant et péages', category: 'transport', plannedAmount: 0, amount: 0, status: 'prévue' });
-    if (template === 'avion') trip.expenses.push({ id: U.uid('expense'), label: 'Billets avion', category: 'transport', plannedAmount: 0, amount: 0, status: 'prévue' });
-  }
-
-  function renderSteps() {
-    const list = byId('stepsList'); if (!list) return;
-    const trip = activeTrip(); if (!trip) { list.innerHTML = '<div class="empty-state">Sélectionne un voyage pour ajouter des étapes.</div>'; return; }
-    const steps = U.sortSteps(trip.steps || []);
-    list.innerHTML = steps.length ? steps.map((s, i) => `<article class="step-row"><div class="step-marker" style="background:${s.color || '#2563eb'}">${i + 1}</div><div><span class="badge">${U.escapeHtml(s.type)} · ${U.escapeHtml(s.priority)}</span><h3>${U.escapeHtml(s.name)}</h3><p>${U.formatDate(s.arrivalDate)}${s.arrivalTime ? ` ${s.arrivalTime}` : ''} → ${U.formatDate(s.departureDate)}${s.departureTime ? ` ${s.departureTime}` : ''}</p><p>${U.escapeHtml(s.address || (U.isValidCoord(s) ? `${s.lat}, ${s.lng}` : 'coordonnées manquantes'))}</p></div><div class="row-actions"><button class="button" data-move-step="up" data-step-id="${s.id}" ${i === 0 ? 'disabled' : ''}>↑</button><button class="button" data-move-step="down" data-step-id="${s.id}" ${i === steps.length - 1 ? 'disabled' : ''}>↓</button><button class="button" data-edit-step="${s.id}">Modifier</button><button class="button" data-delete-step="${s.id}">Supprimer</button></div></article>`).join('') : '<div class="empty-state">Ajoute un départ, des arrêts et une destination finale.</div>';
-    list.querySelectorAll('[data-edit-step]').forEach(b => b.addEventListener('click', () => openStepDialog(b.dataset.editStep)));
-    list.querySelectorAll('[data-delete-step]').forEach(b => b.addEventListener('click', () => deleteStep(b.dataset.deleteStep)));
-    list.querySelectorAll('[data-move-step]').forEach(b => b.addEventListener('click', () => moveStep(b.dataset.stepId, b.dataset.moveStep)));
-  }
-
-  function openStepDialog(id = '') {
-    const trip = activeTrip(); if (!trip) return showStatus('Crée d’abord un voyage.');
-    const form = byId('stepForm'); form.reset();
-    const step = safeArray(trip.steps).find(s => s.id === id);
-    byId('stepDialogTitle').textContent = step ? 'Modifier une étape' : 'Ajouter une étape';
-    const values = step || { color: '#2563eb', type: 'ville', priority: 'optionnel' };
-    ['id','name','type','address','lat','lng','arrivalDate','arrivalTime','departureDate','departureTime','duration','cost','priority','color','notes'].forEach(k => { if (form.elements[k]) form.elements[k].value = values[k] ?? ''; });
-    if (form.elements.links) form.elements.links.value = safeArray(values.links).join(', ');
-    openDialog('stepDialog');
-    validateStepDates();
-  }
-  function bindStepDateLogic() { ['arrivalDate','arrivalTime','departureDate','departureTime'].forEach(name => $('#stepForm')?.elements[name]?.addEventListener('change', validateStepDates)); }
-  function validateStepDates() {
-    const form = byId('stepForm'); if (!form) return true;
-    const aD = form.elements.arrivalDate.value, dD = form.elements.departureDate.value, aT = form.elements.arrivalTime.value, dT = form.elements.departureTime.value;
-    const status = byId('stepDateStatus');
-    let ok = true, message = 'Indique quand tu arrives sur place, puis quand tu repars.';
-    if (dD && !aD) { form.elements.arrivalDate.value = dD; message = 'Date d’arrivée alignée sur le départ.'; }
-    if (aD && dD && dD < aD) { form.elements.departureDate.value = aD; ok = false; message = 'La date de départ a été corrigée : elle ne peut pas être avant l’arrivée.'; }
-    if (aD && form.elements.departureDate.value === aD && aT && dT && dT < aT) { form.elements.departureTime.value = aT; ok = false; message = 'L’heure de départ a été corrigée : elle ne peut pas être avant l’arrivée.'; }
-    if (status) { status.classList.toggle('is-warning', !ok); status.querySelector('span').textContent = message; }
-    return ok;
-  }
-  function saveStepForm(e) {
-    e.preventDefault(); if (!requireReady()) return; validateStepDates();
-    const trip = activeTrip(); const form = e.currentTarget; const data = new FormData(form); const id = data.get('id') || U.uid('step');
-    const existing = trip.steps.find(s => s.id === id);
-    const step = { ...(existing || {}), id, order: existing?.order ?? trip.steps.length, name: data.get('name') || 'Étape', type: data.get('type') || 'ville', address: data.get('address') || '', lat: data.get('lat') === '' ? '' : Number(data.get('lat')), lng: data.get('lng') === '' ? '' : Number(data.get('lng')), arrivalDate: data.get('arrivalDate') || '', arrivalTime: data.get('arrivalTime') || '', departureDate: data.get('departureDate') || '', departureTime: data.get('departureTime') || '', duration: data.get('duration') || '', cost: Number(data.get('cost')) || 0, priority: data.get('priority') || 'optionnel', color: data.get('color') || '#2563eb', links: U.linksToArray(data.get('links')), notes: data.get('notes') || '', transportToNext: existing?.transportToNext || 'car', journal: existing?.journal || {} };
-    const idx = trip.steps.findIndex(s => s.id === id); if (idx >= 0) trip.steps[idx] = step; else trip.steps.push(step);
-    trip.steps = U.sortSteps(trip.steps).map((s, i) => ({ ...s, order: i }));
-    closeDialog('stepDialog'); persist('Étape enregistrée.');
-  }
-  async function deleteStep(id) { const trip = activeTrip(); const ok = await confirmAction('Supprimer cette étape ?', 'Elle sera retirée du planning et de la carte.'); if (!ok) return; trip.steps = trip.steps.filter(s => s.id !== id); persist('Étape supprimée.'); }
-  function moveStep(id, dir) { const trip = activeTrip(); const steps = U.sortSteps(trip.steps); const i = steps.findIndex(s => s.id === id); const j = dir === 'up' ? i - 1 : i + 1; if (j < 0 || j >= steps.length) return; [steps[i], steps[j]] = [steps[j], steps[i]]; trip.steps = steps.map((s, order) => ({ ...s, order })); persist('Ordre mis à jour.'); }
-
-  function renderItinerary() {
-    const trip = activeTrip();
-    Itinerary.renderSummary(byId('itinerarySummary'), trip, state.settings);
-    Itinerary.renderDayPlanner(byId('dayPlannerBoard'), trip, state.settings, { editStep: openStepDialog, addStep: date => openStepDialogForDate(date) });
-    Itinerary.renderItinerary(byId('itineraryList'), trip, state.settings, (stepId, field, value) => { const step = activeTrip()?.steps.find(s => s.id === stepId); if (step) { step[field] = field === 'segmentCost' ? Number(value) || 0 : value; persist('Trajet mis à jour.'); } });
-  }
-  function openStepDialogForDate(date) { openStepDialog(); const form = byId('stepForm'); form.elements.arrivalDate.value = date; form.elements.departureDate.value = date; }
-
-  function renderBudget() {
-    const trip = activeTrip();
-    Budget.renderStats(byId('budgetStats'), trip);
-    Budget.renderDaily(byId('budgetDaily'), trip);
-    Budget.renderPeople(byId('budgetPeople'), trip);
-    renderBudgetAlerts();
-    Budget.drawChart(byId('budgetChart'), trip);
-    Budget.renderExpenses(byId('expensesList'), trip, { edit: openExpenseDialog, delete: deleteExpense });
-    Budget.renderBreakdown(byId('budgetBreakdown'), trip);
-  }
-  function renderBudgetAlerts() {
-    const el = byId('budgetAlerts'); if (!el) return;
-    const trip = activeTrip(); if (!trip) { el.innerHTML = ''; return; }
-    const b = Budget.computeBudget(trip); const alerts = [];
-    if (b.max && b.total > b.max) alerts.push(`Budget prévu dépassé de ${U.formatMoney(b.total - b.max, trip.currency)}.`);
-    if (b.actualTotal > b.plannedTotal && b.actualTotal > 0) alerts.push(`Réel supérieur au prévu de ${U.formatMoney(b.actualTotal - b.plannedTotal, trip.currency)}.`);
-    el.innerHTML = alerts.map(a => `<div class="alert-chip alert-chip--budget">${U.escapeHtml(a)}</div>`).join('');
-  }
-  function openExpenseDialog(id = '') {
-    const trip = activeTrip(); if (!trip) return showStatus('Crée d’abord un voyage.');
-    const form = byId('expenseForm'); form.reset();
-    form.elements.stepId.innerHTML = '<option value="">Aucune étape</option>' + U.sortSteps(trip.steps).map(s => `<option value="${s.id}">${U.escapeHtml(s.name)}</option>`).join('');
-    const names = Budget.travellerNames(trip);
-    form.elements.paidBy.innerHTML = '<option value="">Non renseigné</option>' + names.map(n => `<option value="${U.escapeHtml(n)}">${U.escapeHtml(n)}</option>`).join('');
-    byId('expenseSplitPeople').innerHTML = names.map(n => `<label class="chip-check"><input type="checkbox" name="splitBetween" value="${U.escapeHtml(n)}" checked><span>${U.escapeHtml(n)}</span></label>`).join('');
-    const expense = trip.expenses.find(e => e.id === id);
-    byId('expenseDialogTitle').textContent = expense ? 'Modifier une dépense' : 'Ajouter une dépense';
-    if (expense) {
-      ['id','label','category','status','paidBy','date','stepId','note'].forEach(k => { if (form.elements[k]) form.elements[k].value = expense[k] ?? ''; });
-      form.elements.plannedAmount.value = expense.plannedAmount ?? expense.amount ?? '';
-      form.elements.actualAmount.value = expense.actualAmount ?? '';
-      form.querySelectorAll('input[name="splitBetween"]').forEach(ch => ch.checked = !expense.splitBetween?.length || expense.splitBetween.includes(ch.value));
-    }
-    openDialog('expenseDialog');
-  }
-  function saveExpenseForm(e) {
-    e.preventDefault(); if (!requireReady()) return;
-    const trip = activeTrip(); const data = new FormData(e.currentTarget); const id = data.get('id') || U.uid('expense');
-    const expense = { id, label: data.get('label') || 'Dépense', category: data.get('category') || 'autres', plannedAmount: Number(data.get('plannedAmount')) || 0, amount: Number(data.get('plannedAmount')) || 0, actualAmount: data.get('actualAmount') === '' ? '' : Number(data.get('actualAmount')) || 0, status: data.get('status') || 'prévue', paidBy: data.get('paidBy') || '', splitBetween: data.getAll('splitBetween'), date: data.get('date') || '', stepId: data.get('stepId') || '', note: data.get('note') || '' };
-    const i = trip.expenses.findIndex(x => x.id === id); if (i >= 0) trip.expenses[i] = expense; else trip.expenses.push(expense);
-    closeDialog('expenseDialog'); persist('Dépense enregistrée.');
-  }
-  async function deleteExpense(id) { const ok = await confirmAction('Supprimer cette dépense ?', 'Elle sera retirée du budget.'); if (!ok) return; activeTrip().expenses = activeTrip().expenses.filter(e => e.id !== id); persist('Dépense supprimée.'); }
-
-  function renderSuggestions() { Suggestions.render(byId('scorePanel'), byId('suggestionsList'), activeTrip(), state.settings); }
-  async function optimizeActiveTrip() { const trip = activeTrip(); if (!trip || trip.steps.length < 3) return showStatus('Ajoute au moins trois étapes.'); const ok = await confirmAction('Optimiser l’ordre ?', 'Le premier et le dernier lieu restent fixes.'); if (!ok) return; trip.steps = Suggestions.optimizeOrder(trip, state.settings); persist('Ordre optimisé.'); }
-
-  function renderChecklists() {
-    const el = byId('checklists'); if (!el) return; const trip = activeTrip();
-    if (!trip) { el.innerHTML = '<div class="empty-state">Sélectionne un voyage.</div>'; return; }
-    trip.checklists ||= U.createDefaultChecklists();
-    el.innerHTML = Object.entries(trip.checklists).map(([name, items]) => `<article class="checklist"><div class="checklist__head"><input class="input checklist-title" data-checklist-title="${U.escapeHtml(name)}" value="${U.escapeHtml(name)}"><button class="button" data-add-check="${U.escapeHtml(name)}">+ tâche</button><button class="button button--danger" data-delete-checklist="${U.escapeHtml(name)}">Supprimer</button></div>${safeArray(items).map(item => `<label><input type="checkbox" data-check-id="${item.id}" data-check-category="${U.escapeHtml(name)}" ${item.done ? 'checked' : ''}><span contenteditable="true" data-check-text="${item.id}" data-check-category="${U.escapeHtml(name)}">${U.escapeHtml(item.text)}</span><button type="button" class="icon-button" data-delete-check="${item.id}" data-check-category="${U.escapeHtml(name)}">×</button></label>`).join('')}</article>`).join('');
-    el.querySelectorAll('[data-check-id]').forEach(ch => ch.addEventListener('change', () => { const item = trip.checklists[ch.dataset.checkCategory].find(i => i.id === ch.dataset.checkId); if (item) item.done = ch.checked; persist(); }));
-    el.querySelectorAll('[data-check-text]').forEach(span => span.addEventListener('blur', () => { const item = trip.checklists[span.dataset.checkCategory].find(i => i.id === span.dataset.checkText); if (item) item.text = span.textContent.trim() || item.text; persist(); }));
-    el.querySelectorAll('[data-add-check]').forEach(b => b.addEventListener('click', () => { const text = prompt('Nouvelle tâche ?'); if (text) { trip.checklists[b.dataset.addCheck].push({ id: U.uid('todo'), text, done: false }); persist('Tâche ajoutée.'); } }));
-    el.querySelectorAll('[data-delete-check]').forEach(b => b.addEventListener('click', () => { trip.checklists[b.dataset.checkCategory] = trip.checklists[b.dataset.checkCategory].filter(i => i.id !== b.dataset.deleteCheck); persist('Tâche supprimée.'); }));
-    el.querySelectorAll('[data-delete-checklist]').forEach(b => b.addEventListener('click', () => { delete trip.checklists[b.dataset.deleteChecklist]; persist('Bloc supprimé.'); }));
-    el.querySelectorAll('[data-checklist-title]').forEach(input => input.addEventListener('change', () => { const old = input.dataset.checklistTitle; const nw = input.value.trim(); if (nw && nw !== old) { trip.checklists[nw] = trip.checklists[old]; delete trip.checklists[old]; persist('Bloc renommé.'); } }));
-  }
-  function addChecklistBlock() { const trip = activeTrip(); if (!trip) return; const name = prompt('Nom du bloc ?', 'Nouvelle liste'); if (!name) return; trip.checklists ||= {}; trip.checklists[name] ||= []; persist('Bloc ajouté.'); }
-
-  function renderJournal() {
-    const el = byId('journalList'); if (!el) return; const trip = activeTrip();
-    if (!trip || !trip.steps.length) { el.innerHTML = '<div class="empty-state">Ajoute des étapes pour créer un carnet.</div>'; return; }
-    el.innerHTML = U.sortSteps(trip.steps).map(s => { s.journal ||= {}; return `<article class="journal-row"><span class="badge">${U.escapeHtml(s.type)}</span><h3>${U.escapeHtml(s.name)}</h3><div class="form-grid mt"><label>Notes<textarea class="input" rows="3" data-journal-field="notes" data-step-id="${s.id}">${U.escapeHtml(s.journal.notes || '')}</textarea></label><label>Photos / liens<textarea class="input" rows="3" data-journal-field="photoLinks" data-step-id="${s.id}">${U.escapeHtml(s.journal.photoLinks || '')}</textarea></label><label>Avis<input class="input" data-journal-field="rating" data-step-id="${s.id}" value="${U.escapeHtml(s.journal.rating || '')}"></label><label>Dépenses réelles<input class="input" type="number" data-journal-field="realExpenses" data-step-id="${s.id}" value="${U.escapeHtml(s.journal.realExpenses || '')}"></label><label>Météo<input class="input" data-journal-field="weather" data-step-id="${s.id}" value="${U.escapeHtml(s.journal.weather || '')}"></label><label class="wide">Commentaire<textarea class="input" rows="3" data-journal-field="afterthoughts" data-step-id="${s.id}">${U.escapeHtml(s.journal.afterthoughts || '')}</textarea></label></div></article>`; }).join('');
-    el.querySelectorAll('[data-journal-field]').forEach(f => f.addEventListener('change', () => { const s = trip.steps.find(x => x.id === f.dataset.stepId); s.journal ||= {}; s.journal[f.dataset.journalField] = f.value; persist('Carnet mis à jour.'); }));
-  }
-
-  function renderSettings() {
-    $$('#settingsPanel [data-setting]').forEach(input => {
-      const path = input.dataset.setting.split('.');
-      let value = state.settings;
-      path.forEach(k => value = value?.[k]);
-      input.value = value ?? '';
-    });
-  }
-  function saveSettings() {
-    $$('#settingsPanel [data-setting]').forEach(input => {
-      const path = input.dataset.setting.split('.');
-      if (path.length === 1) state.settings[path[0]] = Number(input.value) || 0;
-      else { state.settings[path[0]] ||= {}; state.settings[path[0]][path[1]] = Number(input.value) || 0; }
-    });
-    persist('Paramètres enregistrés.'); setupPeriodicAutosave();
-  }
-
-  function renderMap() {
-    const trip = activeTrip();
-    MapView.renderFilters(byId('mapFilters'), trip, renderMap);
-    MapView.renderRoutes(byId('mapRoutesList'), trip, state.settings, (stepId, value) => { const s = activeTrip()?.steps.find(x => x.id === stepId); if (s) { s.transportToNext = value; persist('Transport mis à jour.'); } });
-    MapView.renderMapSteps(byId('mapStepsList'), trip);
-    MapView.updateMap(trip, state.settings);
-  }
-
-  function renderCommunity() {
-    const grid = byId('communityGrid'); const stats = byId('communityStats'); const admin = byId('communityAdminPanel'); if (!grid) return;
-    const query = (byId('communitySearchInput')?.value || '').toLowerCase();
-    const country = byId('communityCountryFilter')?.value || '';
-    const category = byId('communityCategoryFilter')?.value || '';
-    const sort = byId('communitySortFilter')?.value || 'trend';
-    const countries = [...new Set(communityTrips.map(t => t.country).filter(Boolean))].sort();
-    const countrySel = byId('communityCountryFilter'); if (countrySel) { const current = countrySel.value; countrySel.innerHTML = '<option value="">Tous les pays</option>' + countries.map(c => `<option value="${U.escapeHtml(c)}">${U.escapeHtml(c)}</option>`).join(''); countrySel.value = current; }
-    let rows = communityTrips.filter(t => (!query || `${t.title} ${t.country} ${t.category} ${t.description}`.toLowerCase().includes(query)) && (!country || t.country === country) && (!category || t.category === category));
-    rows.sort((a,b) => sort === 'recent' ? String(b.clientCreatedAt || '').localeCompare(a.clientCreatedAt || '') : sort === 'popular' ? (b.votesUp || 0) - (a.votesUp || 0) : ((b.votesUp || 0) - (b.votesDown || 0)) - ((a.votesUp || 0) - (a.votesDown || 0)));
-    if (stats) stats.innerHTML = `<div class="stat-card"><strong>${communityTrips.length}</strong><span>voyages publics</span></div><div class="stat-card"><strong>${countries.length}</strong><span>pays</span></div><div class="stat-card"><strong>${rows.length}</strong><span>résultats</span></div>`;
-    if (admin) { admin.hidden = !Cloud?.isAdmin?.(); admin.innerHTML = Cloud?.isAdmin?.() ? '<div class="panel"><strong>Mode admin Lucas S.</strong><span>Tu peux retirer une publication.</span></div>' : ''; }
-    grid.innerHTML = rows.length ? rows.map(t => `<article class="community-card trip-card" ${t.coverImage ? `style="background-image:linear-gradient(120deg,rgba(4,16,36,.78),rgba(20,184,166,.34)),url('${U.escapeHtml(t.coverImage)}')"` : ''}><span class="badge">${U.escapeHtml(t.category || 'voyage')}</span><h3>${U.escapeHtml(t.title)}</h3><p>${U.escapeHtml(t.country || '')}</p><p>${U.escapeHtml(t.description || '')}</p><div class="trip-card__meta"><span>🔥 ${(t.votesUp || 0) - (t.votesDown || 0)} tendance</span><span>👤 ${U.escapeHtml(t.authorName || 'Utilisateur')}</span></div><div class="trip-card__actions"><button class="button" data-vote-up="${t.id}">+ Tendance</button><button class="button" data-vote-down="${t.id}">−</button>${t.allowCopy !== false ? `<button class="button button--primary" data-copy-community="${t.id}">Copier</button>` : ''}${(Cloud?.isAdmin?.() || t.ownerUid === Cloud?.getUser?.()?.uid) ? `<button class="button button--danger" data-delete-community="${t.id}">Retirer</button>` : ''}</div></article>`).join('') : '<div class="empty-state">Aucun voyage partagé pour le moment.</div>';
-    grid.querySelectorAll('[data-vote-up]').forEach(b => b.addEventListener('click', () => voteCommunity(b.dataset.voteUp, 'up')));
-    grid.querySelectorAll('[data-vote-down]').forEach(b => b.addEventListener('click', () => voteCommunity(b.dataset.voteDown, 'down')));
-    grid.querySelectorAll('[data-copy-community]').forEach(b => b.addEventListener('click', () => copyCommunityTrip(b.dataset.copyCommunity)));
-    grid.querySelectorAll('[data-delete-community]').forEach(b => b.addEventListener('click', () => deleteCommunity(b.dataset.deleteCommunity)));
-  }
-  async function loadCommunity() { try { if (!Cloud?.isConfigured?.()) return; communityTrips = await Cloud.listCommunityTrips(); renderCommunity(); } catch (e) { console.error(e); showStatus(e.message || 'Communauté indisponible.'); } }
-  function openCommunityPublishDialog() { if (!requireReady()) return; const trip = activeTrip(); if (!trip) return showStatus('Sélectionne un voyage à publier.'); const form = byId('communityPublishForm'); form.reset(); form.elements.title.value = trip.name; form.elements.country.value = trip.area; form.elements.coverImage.value = trip.coverImage || ''; form.elements.description.value = trip.description || ''; openDialog('communityPublishDialog'); }
-  async function publishCommunity(e) { e.preventDefault(); if (!requireReady()) return; const trip = activeTrip(); const data = new FormData(e.currentTarget); try { await Cloud.publishCommunityTrip(trip, { title: data.get('title'), country: data.get('country'), category: data.get('category'), coverImage: data.get('coverImage'), description: data.get('description'), hideBudget: data.get('hideBudget') === 'on', hideNotes: data.get('hideNotes') === 'on', allowCopy: data.get('allowCopy') === 'on' }); closeDialog('communityPublishDialog'); showStatus('Voyage publié dans la communauté.'); await loadCommunity(); switchView('community'); } catch (err) { console.error(err); showStatus(err.message || 'Publication impossible. Vérifie les règles Firestore.'); } }
-  async function voteCommunity(id, dir) { try { await Cloud.voteCommunityTrip(id, dir); await loadCommunity(); } catch (e) { showStatus(e.message || 'Vote impossible.'); } }
-  async function deleteCommunity(id) { const ok = await confirmAction('Retirer cette publication ?', 'Elle disparaîtra de la page Communauté.'); if (!ok) return; try { await Cloud.deleteCommunityTrip(id); await loadCommunity(); } catch (e) { showStatus(e.message || 'Suppression impossible.'); } }
-  function copyCommunityTrip(id) { const item = communityTrips.find(t => t.id === id); if (!item?.trip) return; const trip = Storage.normalizeTrip({ ...item.trip, id: U.uid('trip'), name: `${item.trip.name || item.title} — copie`, communityId: id }); state = Storage.upsertTrip(state, trip); persist('Voyage copié dans ton espace.'); switchView('trip'); }
-
-  async function createPublicShare() { const trip = activeTrip(); if (!trip) return; try { byId('shareLinkInput').value = await Cloud.createPublicShare(trip, shareOptions()); showStatus('Lien créé.'); } catch(e) { showStatus(e.message || 'Partage impossible.'); } }
-  async function createPrivateShare() { const trip = activeTrip(); if (!trip) return; const emails = String(byId('shareCollaboratorsInput')?.value || '').split(','); try { byId('shareLinkInput').value = await Cloud.createPrivateShare(trip, emails, shareOptions()); showStatus('Collaboration créée.'); } catch(e) { showStatus(e.message || 'Collaboration impossible.'); } }
-  function shareOptions() { return { hideBudget: byId('shareHideBudget')?.checked, hideNotes: byId('shareHideNotes')?.checked, hideJournal: byId('shareHideJournal')?.checked }; }
-
-  function renderGlobalSearch() {
-    const box = byId('globalSearchResults'); const input = byId('globalSearchInput'); if (!box || !input) return;
-    const q = input.value.trim().toLowerCase(); if (q.length < 2) { box.hidden = true; box.innerHTML = ''; return; }
-    const results = [];
-    state.trips.forEach(trip => { if (`${trip.name} ${trip.area}`.toLowerCase().includes(q)) results.push({ label: trip.name, sub: 'voyage', action: () => { state.activeTripId = trip.id; persist(); switchView('trip'); } }); trip.steps.forEach(s => { if (`${s.name} ${s.address} ${s.notes}`.toLowerCase().includes(q)) results.push({ label: s.name, sub: `étape · ${trip.name}`, action: () => { state.activeTripId = trip.id; persist(); switchView('itinerary'); } }); }); trip.expenses.forEach(ex => { if (`${ex.label} ${ex.category} ${ex.note}`.toLowerCase().includes(q)) results.push({ label: ex.label, sub: `dépense · ${trip.name}`, action: () => { state.activeTripId = trip.id; persist(); switchView('budget'); } }); }); });
-    box.innerHTML = results.slice(0, 8).map((r, i) => `<button type="button" data-search-result="${i}"><strong>${U.escapeHtml(r.label)}</strong><small>${U.escapeHtml(r.sub)}</small></button>`).join('') || '<div class="empty-state">Aucun résultat.</div>';
-    box.hidden = false;
-    box.querySelectorAll('[data-search-result]').forEach(b => b.addEventListener('click', () => { results[Number(b.dataset.searchResult)].action(); box.hidden = true; input.value = ''; }));
-  }
-
-  function bindGeocoder() {
-    window.TravelGeocoder?.attachStepSearch?.({ input: byId('placeSearchInput'), button: byId('placeSearchBtn'), resultsContainer: byId('placeSearchResults'), statusElement: byId('placeSearchStatus'), onSelect: place => { const form = byId('stepForm'); form.elements.name.value = place.name; form.elements.type.value = place.type; form.elements.address.value = place.address || place.displayName; form.elements.lat.value = place.lat; form.elements.lng.value = place.lng; } });
-  }
-
-  function persist(message) {
-    state = Storage.save(state);
-    renderAll();
-    scheduleSave();
-    if (message) showStatus(message);
-  }
-  function scheduleSave(delay = 700) { if (!appReady || !hasUser()) return; clearTimeout(autosaveTimer); autosaveTimer = setTimeout(() => saveNow(true), delay); }
-  async function saveNow(silent = true) { if (!appReady || !hasUser()) return; try { await Cloud.saveState(Storage.save(state)); lastSavedAt = new Date().toISOString(); updateCloudUi(); if (!silent) showStatus('Sauvegardé.'); } catch(e) { console.error(e); showStatus(e.message || 'Sauvegarde impossible.'); } }
-  function setupPeriodicAutosave() { clearInterval(autosaveInterval); const minutes = Math.max(1, Number(state.settings.autosaveMinutes) || 3); autosaveInterval = setInterval(() => saveNow(true), minutes * 60000); }
-
-  async function initCloud() {
-    if (!Cloud) { cloudLoading = false; showStatus('Module Firebase introuvable.'); renderAll(); return; }
-    Cloud.onAuthChange(payload => { updateCloudUi(payload); });
-    try {
-      await Cloud.init();
-      await Cloud.waitForAuthState();
-      const user = Cloud.getUser();
-      if (user) await loadCloudState(); else { cloudLoading = false; appReady = false; renderAll(); updateCloudUi(); }
-      loadCommunity();
-    } catch(e) { cloudLoading = false; appReady = false; console.error(e); showStatus(e.message || 'Firebase indisponible.'); renderAll(); updateCloudUi({ status: e.message }); }
-  }
-  async function loadCloudState() {
-    cloudLoading = true; renderAll();
-    const backup = await Cloud.loadState();
-    state = backup?.state ? Storage.save(backup.state) : Storage.createEmptyState();
-    if (!backup?.state) await Cloud.saveState(state);
-    lastSavedAt = backup?.clientUpdatedAt || new Date().toISOString();
-    cloudLoading = false; appReady = true; applyTheme(state.settings.theme || 'light'); renderAll(); setupPeriodicAutosave(); showStatus('Voyages chargés.');
-  }
-  async function handleCloudButton() { if (hasUser()) switchView('settings'); else handleSignIn(); }
-  async function handleSignIn() { try { cloudLoading = true; renderAll(); await Cloud.signIn(); await loadCloudState(); await loadCommunity(); } catch(e) { cloudLoading = false; console.error(e); showStatus(e.message || 'Connexion impossible.'); renderAll(); } }
-  async function handleSignOut() { const ok = await confirmAction('Se déconnecter ?', 'Tes voyages restent sauvegardés dans Firebase.'); if (!ok) return; await saveNow(true); await Cloud.signOut(); state = Storage.createEmptyState(); appReady = false; cloudLoading = false; renderAll(); }
-  async function deleteCloudData() { const ok = await confirmAction('Réinitialiser le compte ?', 'Tous les voyages de ce compte seront supprimés de Firebase.'); if (!ok) return; await Cloud.deleteState(); state = Storage.createEmptyState(); appReady = true; renderAll(); showStatus('Compte réinitialisé.'); }
-  function updateCloudUi(payload = {}) {
-    const user = payload.user ?? Cloud?.getUser?.();
-    document.body.classList.toggle('is-cloud-locked', !user || !appReady);
-    const top = byId('cloudAuthBtn');
-    if (top) top.innerHTML = user ? `<span class="cloud-avatar-mini">${user.photoURL ? `<img src="${user.photoURL}" alt="">` : 'G'}</span><span class="auth-pill__text"><strong>Connecté</strong><small>${U.escapeHtml((user.displayName || user.email || '').split(' ')[0])}</small></span>` : `<span class="google-mark">G</span><span class="auth-pill__text"><strong>Connexion</strong><small>Google</small></span>`;
-    if (byId('cloudStatus')) byId('cloudStatus').innerHTML = `<span class="cloud-status__dot"></span><span>${U.escapeHtml(payload.status || Cloud?.getStatus?.() || (user ? 'Connecté.' : 'Connexion requise.'))}</span>`;
-    if (byId('cloudProfile')) byId('cloudProfile').hidden = !user;
-    if (user) { if (byId('cloudAvatar')) byId('cloudAvatar').src = user.photoURL || ''; if (byId('cloudUserName')) byId('cloudUserName').textContent = user.displayName || 'Compte Google'; if (byId('cloudUserEmail')) byId('cloudUserEmail').textContent = user.email || ''; }
-    if (byId('cloudSignInBtn')) byId('cloudSignInBtn').disabled = Boolean(user);
-    if (byId('cloudSignOutBtn')) byId('cloudSignOutBtn').disabled = !user;
-    if (byId('deleteCloudDataBtn')) byId('deleteCloudDataBtn').disabled = !user;
-    if (byId('cloudSyncMeta')) byId('cloudSyncMeta').textContent = lastSavedAt ? `Dernière sauvegarde : ${new Date(lastSavedAt).toLocaleString('fr-FR')}` : (user ? 'Sauvegarde automatique active.' : 'Non connecté');
-  }
-
-  function confirmAction(title, message) {
-    const dialog = byId('confirmDialog'); if (!dialog) return Promise.resolve(confirm(`${title}\n${message}`));
-    byId('confirmTitle').textContent = title; byId('confirmMessage').textContent = message;
-    return new Promise(resolve => { const done = () => { dialog.removeEventListener('close', done); resolve(dialog.returnValue === 'default'); }; dialog.addEventListener('close', done); dialog.showModal(); });
-  }
-  async function deleteTrip(id) { const ok = await confirmAction('Supprimer ce voyage ?', 'Cette action supprimera le voyage de ton compte.'); if (!ok) return; state = Storage.deleteTrip(state, id); persist('Voyage supprimé.'); }
-  function toggleFab(force) { const menu = byId('fabMenu'); if (!menu) return; menu.hidden = typeof force === 'boolean' ? !force : !menu.hidden; }
-  function copyText(text) { if (!text) return; navigator.clipboard?.writeText(text); showStatus('Copié.'); }
-
-  document.addEventListener('DOMContentLoaded', init);
+(function(){
+'use strict';
+const U=window.TravelUtils, Store=window.TravelStorage, Cloud=window.TravelCloudSync;
+let state=Store.load(), view='dashboard', cloudLoading=true, autosaveTimer=null, community=[];
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const titles={dashboard:'Tableau de bord',today:'Aujourd’hui',community:'Communauté',trip:'Voyage',map:'Carte du voyage',itinerary:'Planning',budget:'Budget',suggestions:'Suggestions',preparation:'Préparation',journal:'Carnet',settings:'Paramètres'};
+const templates=[
+ {name:'Roadtrip',style:'aventure',icon:'🚗',desc:'Étapes, trajets et pauses sur plusieurs jours.'},
+ {name:'City break',style:'équilibré',icon:'🏙️',desc:'Week-end, activités, restaurants et hôtel.'},
+ {name:'Voyage avion',style:'confort',icon:'✈️',desc:'Aéroports, transferts, hôtel et marge horaires.'},
+ {name:'Petit budget',style:'économique',icon:'🎒',desc:'Budget serré, transports, repas et priorités.'}
+];
+function activeTrip(){return Store.getTrip(state)}
+function saveLocal(){state=Store.save(state);}
+function isSigned(){return !!Cloud.getUser()}
+function show(msg,type='info'){const b=$('#statusBanner'); b.textContent=msg; b.className='status-banner '+type; b.hidden=false; clearTimeout(show.t); show.t=setTimeout(()=>b.hidden=true,3200)}
+function scheduleSave(){saveLocal(); clearTimeout(autosaveTimer); autosaveTimer=setTimeout(async()=>{ if(isSigned()){try{await Cloud.saveState(state); renderAccount();}catch(e){show('Sauvegarde impossible : '+(e.message||e),'error')}}},500)}
+function persist(msg){saveLocal(); renderAll(); scheduleSave(); if(msg)show(msg)}
+function esc(s){return U.esc(s)}
+function budget(trip){const expenses=trip?.expenses||[]; const planned=expenses.reduce((a,e)=>a+U.num(e.planned),0)+(trip?.steps||[]).reduce((a,s)=>a+U.num(s.cost),0); const actual=expenses.reduce((a,e)=>a+U.num(e.actual),0); const max=U.num(trip?.maxBudget); return {planned,actual,total:actual||planned,max,remaining:max-(actual||planned)};}
+function score(trip){if(!trip)return 0; let pts=0,max=8; if(trip.name)pts++; if(trip.area)pts++; if(trip.startDate&&trip.endDate)pts++; if((trip.steps||[]).length>=2)pts++; if((trip.expenses||[]).length)pts++; if((trip.checklists||[]).some(b=>(b.items||[]).some(i=>i.done)))pts++; if((trip.steps||[]).every(s=>s.arrivalDate&&s.departureDate))pts++; if(U.num(trip.maxBudget)>0)pts++; return Math.round(pts/max*100)}
+function init(){bind(); applyTheme(state.settings.theme); renderAll(); switchView(location.hash.replace('#','')||'dashboard'); initCloud();}
+function bind(){
+ $$('[data-view-link]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.viewLink)));
+ window.addEventListener('hashchange',()=>switchView(location.hash.replace('#','')||'dashboard'));
+ $('#newTripBtn').addEventListener('click',newTrip); $('#createFirstTripBtn').addEventListener('click',newTrip);
+ $('#themeToggle').addEventListener('click',()=>{state.settings.theme=document.body.classList.contains('dark')?'light':'dark'; applyTheme(state.settings.theme); persist('Thème modifié.')});
+ $('#cloudAuthBtn').addEventListener('click',async()=>{try{isSigned()?await Cloud.signOut():await Cloud.signIn()}catch(e){show('Connexion impossible : '+(e.message||e),'error')}});
+ $('#tripSelector').addEventListener('change',e=>{state.activeTripId=e.target.value||null; persist('Voyage sélectionné.')});
+ $('#tripForm').addEventListener('submit',saveTripForm); $('#addStepBtn').addEventListener('click',()=>openStep()); $('#stepForm').addEventListener('submit',saveStep);
+ $('#addExpenseBtn').addEventListener('click',()=>openExpense()); $('#expenseForm').addEventListener('submit',saveExpense);
+ $('#fitMapBtn').addEventListener('click',renderMap); $('#refreshItineraryBtn').addEventListener('click',renderItinerary);
+ $('#settingsForm').addEventListener('submit',saveSettings); $('#addChecklistBlockBtn').addEventListener('click',addChecklistBlock); $('#autoFixBtn').addEventListener('click',autoFix);
+ $('#communityPublishBtn').addEventListener('click',openPublish); $('#communityRefreshBtn').addEventListener('click',loadCommunity); $('#publishForm').addEventListener('submit',publishCommunity);
+ ['communitySearchInput','communityCountryFilter','communityCategoryFilter','communitySortFilter'].forEach(id=>$('#'+id)?.addEventListener('input',renderCommunity));
+ $('#globalSearchInput').addEventListener('input',renderSearch);
+ $('#fabBtn').addEventListener('click',()=>$('#fabMenu').hidden=!$('#fabMenu').hidden); $('#fabMenu').addEventListener('click',e=>{const a=e.target.dataset.fab;if(!a)return; $('#fabMenu').hidden=true; if(a==='trip')newTrip(); if(a==='step')openStep(); if(a==='expense')openExpense(); if(a==='today')switchView('today')});
+ $$('[data-close-dialog]').forEach(b=>b.addEventListener('click',()=>$('#'+b.dataset.closeDialog)?.close()));
+ $('#geocodeBtn').addEventListener('click',geocode);
+ document.addEventListener('click',delegated);
+}
+async function initCloud(){
+ Cloud.onAuthChange(({user})=>{renderAuth(user); renderAccount();});
+ try{await Cloud.init(); await Cloud.waitForAuthState(); if(Cloud.getUser()){const remote=await Cloud.loadState(); if(remote?.state)state=Store.normalize(remote.state); saveLocal();} cloudLoading=false; renderAll(); if(Cloud.getUser())loadCommunity();}
+ catch(e){cloudLoading=false; show('Firebase : '+(e.message||e),'error'); renderAll();}
+}
+function renderAuth(user=Cloud.getUser()){
+ const btn=$('#cloudAuthBtn'); const av=btn.querySelector('.auth-avatar'); const copy=btn.querySelector('.auth-copy'); btn.classList.toggle('is-connected',!!user);
+ if(user){av.innerHTML=user.photoURL?`<img src="${esc(user.photoURL)}" alt="">`:'✓'; copy.innerHTML=`<strong>Connecté</strong><small>${esc((user.displayName||user.email||'Google').split(' ')[0])}</small>`;}
+ else{av.textContent='G'; copy.innerHTML='<strong>Connexion</strong><small>Google</small>';}
+}
+function applyTheme(t){document.body.classList.toggle('dark',t==='dark'); $('#themeToggle').textContent=t==='dark'?'☀️':'🌙'}
+function switchView(v){if(!titles[v])v='dashboard'; view=v; if(location.hash.replace('#','')!==v)location.hash=v; $$('.view').forEach(s=>s.classList.toggle('is-visible',s.id===`view-${v}`)); $$('.nav-item').forEach(n=>n.classList.toggle('is-active',n.dataset.viewLink===v)); $('#pageTitle').textContent=titles[v]; renderAll();}
+function renderAll(){renderSelector();renderDashboard();renderToday();renderTripForm();renderSteps();renderMap();renderItinerary();renderBudget();renderSuggestions();renderPreparation();renderJournal();renderAccount();renderSettings();renderCommunity();}
+function renderSelector(){const sel=$('#tripSelector'); sel.innerHTML=state.trips.length?state.trips.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join(''):'<option value="">Aucun voyage</option>'; sel.value=state.activeTripId||'';}
+function loginGate(){return `<div class="login-gate"><h2>Connexion Google</h2><p>Connecte-toi pour charger tes voyages Firebase et synchroniser chaque modification.</p><button class="button button--primary" data-action="signin">Se connecter avec Google</button></div>`}
+function renderDashboard(){
+ const t=activeTrip(), user=Cloud.getUser(), b=t?budget(t):null, s=t?score(t):0;
+ $('#dashboardHero').style.setProperty('--hero-img',t?.coverImage?`url('${t.coverImage.replace(/'/g,'%27')}')`: 'linear-gradient(135deg,#0b3b66,#0ea5a7)');
+ $('#dashboardHero').innerHTML=user&&t?`<div><p class="eyebrow">Voyage actif</p><h2>${esc(t.name)}</h2><p>${esc(t.description||'Ton centre de contrôle pour préparer et suivre le voyage.')}</p><div class="button-row"><button class="button button--primary" data-go="today">Mode voyage</button><button class="button" data-go="itinerary">Planning</button><button class="button" data-go="budget">Budget</button></div></div><div class="hero-metrics"><div class="hero-metric"><small>Préparation</small><strong>${s}%</strong></div><div class="hero-metric"><small>Budget</small><strong>${U.money(b.total,t.currency)}</strong></div><div class="hero-metric"><small>Étapes</small><strong>${(t.steps||[]).length}</strong></div><div class="hero-metric"><small>Durée</small><strong>${U.daysBetween(t.startDate,t.endDate)||'—'} j</strong></div></div>`:`<div><p class="eyebrow">Travel Planner</p><h2>Planifie tes voyages avec Google</h2><p>Planning, budget, carte, préparation, communauté et carnet dans une interface propre.</p><div class="button-row"><button class="button button--primary" data-action="signin">Se connecter</button><button class="button" data-action="newTrip">Créer un voyage</button></div></div><div class="hero-metrics"><div class="hero-metric"><small>Cloud</small><strong>Firebase</strong></div><div class="hero-metric"><small>Créé par</small><strong>Lucas S.</strong></div></div>`;
+ $('#tripTemplates').innerHTML=templates.map(x=>`<button class="template-card" data-template="${esc(x.name)}"><strong>${x.icon} ${esc(x.name)}</strong><span class="muted">${esc(x.desc)}</span></button>`).join('');
+ const grid=$('#tripsGrid'); if(cloudLoading){grid.innerHTML='<div class="empty-state">Chargement de Firebase…</div>';return;} if(!user){grid.innerHTML=loginGate();return;} if(!state.trips.length){grid.innerHTML='<div class="empty-state">Aucun voyage. Crée ton premier itinéraire.</div>';return;}
+ grid.innerHTML=state.trips.map(trip=>{const bu=budget(trip), sc=score(trip); const cover=trip.coverImage?`style="background-image:url('${esc(trip.coverImage)}')"`:''; return `<article class="trip-card"><div class="trip-card__cover" ${cover}></div><div class="trip-card__body"><div class="row-head"><div><span class="badge">${esc(trip.status)}</span><h3>${esc(trip.name)}</h3></div><strong>${sc}%</strong></div><p class="muted">${esc(trip.area||'Zone non renseignée')} · ${U.dateLabel(trip.startDate)} → ${U.dateLabel(trip.endDate)}</p><div class="meta-grid"><span class="meta-pill">🧭 ${(trip.steps||[]).length} étapes</span><span class="meta-pill">💶 ${U.money(bu.total,trip.currency)}</span><span class="meta-pill">👥 ${trip.travellers||1}</span><span class="meta-pill">🎯 ${esc(trip.style)}</span></div><div class="button-row"><button class="button button--primary" data-open-trip="${trip.id}">Continuer</button><button class="button" data-dup-trip="${trip.id}">Dupliquer</button><button class="button button--danger" data-del-trip="${trip.id}">Supprimer</button></div></div></article>`}).join('');
+}
+function newTrip(){if(!isSigned()){Cloud.signIn().catch(e=>show(e.message,'error'));return;} const trip=Store.createTrip(); state.trips.push(trip); state.activeTripId=trip.id; persist('Voyage créé.'); switchView('trip');}
+function renderTripForm(){const f=$('#tripForm'), t=activeTrip(); f.querySelectorAll('input,select,textarea,button').forEach(el=>el.disabled=!t); if(!t){f.reset();return;} ['name','area','coverImage','startDate','endDate','travellers','maxBudget','currency','status','style','pace','interests','description'].forEach(k=>{if(f.elements[k])f.elements[k].value=t[k]??''}); f.elements.travellersNames.value=(t.travellersNames||[]).join(', ');}
+function saveTripForm(e){e.preventDefault();const t=activeTrip();if(!t)return; const f=e.target; ['name','area','coverImage','startDate','endDate','currency','status','style','pace','interests','description'].forEach(k=>t[k]=f.elements[k]?.value||''); t.travellers=U.num(f.elements.travellers.value)||1; t.travellersNames=U.parsePeople(f.elements.travellersNames.value); t.maxBudget=U.num(f.elements.maxBudget.value); persist('Voyage enregistré.');}
+function renderSteps(){const box=$('#stepsList'),t=activeTrip(); if(!t){box.innerHTML='<div class="empty-state">Sélectionne un voyage.</div>';return;} if(!t.steps.length){box.innerHTML='<div class="empty-state">Ajoute le départ, les étapes et la destination.</div>';return;} box.innerHTML=t.steps.map((s,i)=>`<article class="step-row"><div class="row-head"><div><span class="badge">${i+1}. ${esc(s.type)}</span><h3>${esc(s.name)}</h3><p class="muted">${esc(s.address||'Adresse à préciser')}</p></div><div class="button-row"><button class="button" data-edit-step="${s.id}">Modifier</button><button class="button" data-up-step="${s.id}">↑</button><button class="button" data-down-step="${s.id}">↓</button><button class="button button--danger" data-del-step="${s.id}">Supprimer</button></div></div><div class="meta-grid"><span class="meta-pill">Arrivée ${U.shortDate(s.arrivalDate)} ${s.arrivalTime||''}</span><span class="meta-pill">Départ ${U.shortDate(s.departureDate)} ${s.departureTime||''}</span><span class="meta-pill">💶 ${U.money(s.cost,t.currency)}</span><span class="meta-pill">${esc(s.priority)}</span></div></article>`).join('')}
+function openStep(id){const t=activeTrip(); if(!t)return show('Crée un voyage avant d’ajouter une étape.','error'); const s=id?t.steps.find(x=>x.id===id):Store.normalizeStep({}); const f=$('#stepForm'); f.reset(); Object.keys(s).forEach(k=>{if(f.elements[k])f.elements[k].value=s[k]??''}); $('#stepDialogTitle').textContent=id?'Modifier une étape':'Ajouter une étape'; $('#stepDialog').showModal();}
+function saveStep(e){e.preventDefault();const t=activeTrip(),f=e.target;if(!t)return; const s=Store.normalizeStep(Object.fromEntries(new FormData(f).entries())); if(s.departureDate&&s.arrivalDate&&s.departureDate<s.arrivalDate){show('Le départ ne peut pas être avant l’arrivée.','error');return;} if(s.departureDate===s.arrivalDate&&s.departureTime&&s.arrivalTime&&s.departureTime<s.arrivalTime){show('L’heure de départ ne peut pas être avant l’arrivée.','error');return;} const i=t.steps.findIndex(x=>x.id===s.id); i>=0?t.steps[i]=s:t.steps.push(s); $('#stepDialog').close(); persist('Étape enregistrée.');}
+async function geocode(){const q=$('#stepForm').elements.search.value.trim(), out=$('#geocodeResults'); if(!q)return; out.innerHTML='<span class="muted">Recherche…</span>'; try{const url=`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&addressdetails=1&q=${encodeURIComponent(q)}`; const res=await fetch(url,{headers:{'Accept':'application/json'}}); const data=await res.json(); out.innerHTML=data.length?data.map(r=>`<button type="button" data-geo='${esc(JSON.stringify({name:r.name||r.display_name.split(',')[0],address:r.display_name,lat:r.lat,lng:r.lon}))}'>${esc(r.display_name)}</button>`).join(''):'<span class="muted">Aucun résultat.</span>'; }catch(e){out.innerHTML='<span class="danger">Recherche impossible.</span>'}}
+function renderMap(){const t=activeTrip(), canvas=$('#mapCanvas'), seg=$('#mapSegments'); if(!t||!t.steps.length){canvas.innerHTML='<div class="empty-state">Ajoute des étapes avec coordonnées pour voir la carte.</div>'; seg.innerHTML=''; return;} const pts=t.steps.map((s,i)=>({...s,i,lat:U.num(s.lat),lng:U.num(s.lng)})).filter(p=>p.lat&&p.lng); if(!pts.length){canvas.innerHTML='<div class="empty-state">Aucune coordonnée GPS disponible.</div>'; seg.innerHTML='';return;} const minLat=Math.min(...pts.map(p=>p.lat)), maxLat=Math.max(...pts.map(p=>p.lat)), minLng=Math.min(...pts.map(p=>p.lng)), maxLng=Math.max(...pts.map(p=>p.lng)); const pad=40,w=900,h=560; const x=p=>pad+(p.lng-minLng)/(maxLng-minLng||1)*(w-pad*2); const y=p=>h-pad-(p.lat-minLat)/(maxLat-minLat||1)*(h-pad*2); const path=pts.map((p,i)=>`${i?'L':'M'} ${x(p)} ${y(p)}`).join(' '); canvas.innerHTML=`<svg class="map-svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="Carte du voyage"><defs><linearGradient id="sea" x1="0" x2="1"><stop stop-color="#dff6f2"/><stop offset="1" stop-color="#e9f0ff"/></linearGradient></defs><rect width="${w}" height="${h}" fill="url(#sea)"/><g opacity=".28" stroke="#0b3b66" stroke-width="1">${Array.from({length:14},(_,i)=>`<path d="M0 ${i*45} C180 ${i*45+40}, 360 ${i*45-35}, 900 ${i*45+10}" fill="none"/>`).join('')}</g><path d="${path}" fill="none" stroke="#0b3b66" stroke-width="4" stroke-linecap="round" stroke-dasharray="${pts.length>1?'0':'8'}"/>${pts.map(p=>`<g class="map-marker" transform="translate(${x(p)},${y(p)})"><circle r="18" fill="#0ea5a7"/><circle r="12" fill="#fff"/><text text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="900" fill="#0b3b66">${p.i+1}</text></g>`).join('')}</svg>`; $('#openOsmBtn').href=`https://www.openstreetmap.org/?mlat=${pts[0].lat}&mlon=${pts[0].lng}#map=6/${pts[0].lat}/${pts[0].lng}`; seg.innerHTML=t.steps.slice(1).map((s,i)=>{const a=t.steps[i]; const dist=(a.lat&&s.lat)?U.haversine(a,s):0; return `<article class="segment-card"><strong>${esc(a.name)} → ${esc(s.name)}</strong><span class="muted">${dist?dist.toFixed(0)+' km':'Distance à préciser'} · ${U.shortDate(s.arrivalDate)} ${s.arrivalTime||''}</span></article>`}).join('')||'<div class="empty-state">Ajoute au moins deux étapes.</div>';}
+function renderItinerary(){const t=activeTrip(), box=$('#itineraryTimeline'); if(!t){box.innerHTML='<div class="empty-state">Aucun voyage.</div>';return;} const days={}; t.steps.forEach(s=>{const d=s.arrivalDate||'non daté'; (days[d] ||= []).push(s)}); box.innerHTML=Object.entries(days).map(([d,steps])=>`<div class="day-card"><h3>${d==='non daté'?'Étapes non datées':U.dateLabel(d)}</h3>${steps.sort((a,b)=>(a.arrivalTime||'99:99').localeCompare(b.arrivalTime||'99:99')).map(s=>`<div class="timeline-item"><strong>${s.arrivalTime||'--:--'} · ${esc(s.name)}</strong><p class="muted">${esc(s.type)} · départ ${s.departureTime||'--:--'} · ${esc(s.address||'')}</p></div>`).join('')}<button class="button" data-add-step-date="${d==='non daté'?'':d}">+ Ajouter dans cette journée</button></div>`).join('')||'<div class="empty-state">Aucune étape.</div>';}
+function renderToday(){const t=activeTrip(), hero=$('#todayHero'), actions=$('#todayActions'), line=$('#todayTimeline'); if(!t){hero.innerHTML='<h2>Aucun voyage actif</h2>';actions.innerHTML='';line.innerHTML='';return;} const today=new Date().toISOString().slice(0,10); const upcoming=[...t.steps].filter(s=>!s.arrivalDate||s.arrivalDate>=today).sort((a,b)=>(a.arrivalDate+a.arrivalTime).localeCompare(b.arrivalDate+b.arrivalTime)); const next=upcoming[0]||t.steps[0]; hero.innerHTML=`<p class="eyebrow">Mode voyage</p><h2>${next?esc(next.name):'Aucune prochaine étape'}</h2><p>${next?`${U.dateLabel(next.arrivalDate)} ${next.arrivalTime||''} · ${esc(next.address||'Adresse à préciser')}`:'Ajoute une étape pour préparer la journée.'}</p>`; actions.innerHTML=`<h3>Actions rapides</h3><div class="button-row"><button class="button button--primary" data-action="step">+ Étape</button><button class="button" data-action="expense">+ Dépense</button><button class="button" data-go="map">Carte</button></div>`; line.innerHTML=`<h3>Prochaines étapes</h3>${upcoming.slice(0,6).map(s=>`<div class="timeline-item"><strong>${U.shortDate(s.arrivalDate)} ${s.arrivalTime||''} · ${esc(s.name)}</strong><p class="muted">${esc(s.address||'')}</p></div>`).join('')||'<div class="empty-state">Aucune étape à venir.</div>'}`;}
+function openExpense(id){const f=$('#expenseForm'); f.reset(); const t=activeTrip(); const e=id?t.expenses.find(x=>x.id===id):{}; if(e)Object.keys(e).forEach(k=>{if(f.elements[k])f.elements[k].value=Array.isArray(e[k])?e[k].join(', '):e[k]}); $('#expenseDialog').showModal();}
+function saveExpense(e){e.preventDefault(); const t=activeTrip(), f=e.target; if(!t)return; const exp=Store.normalizeExpense(Object.fromEntries(new FormData(f).entries())); const i=t.expenses.findIndex(x=>x.id===exp.id); i>=0?t.expenses[i]=exp:t.expenses.push(exp); $('#expenseDialog').close(); persist('Dépense enregistrée.');}
+function renderBudget(){const t=activeTrip(); const sum=$('#budgetSummary'), list=$('#expensesList'), set=$('#settlementsBox'); if(!t){sum.innerHTML='';list.innerHTML='<div class="empty-state">Aucun voyage.</div>';set.innerHTML='';return;} const b=budget(t); sum.innerHTML=`<div class="stat"><small>Prévu</small><strong>${U.money(b.planned,t.currency)}</strong></div><div class="stat"><small>Réel</small><strong>${U.money(b.actual,t.currency)}</strong></div><div class="stat"><small>Budget max</small><strong>${U.money(b.max,t.currency)}</strong></div><div class="stat"><small>Reste</small><strong class="${b.remaining<0?'danger':'good'}">${U.money(b.remaining,t.currency)}</strong></div>`; list.innerHTML=t.expenses.map(e=>`<div class="expense-row"><div class="row-head"><strong>${esc(e.label)}</strong><div><button class="button" data-edit-expense="${e.id}">Modifier</button><button class="button button--danger" data-del-expense="${e.id}">Supprimer</button></div></div><span class="muted">${esc(e.category)} · prévu ${U.money(e.planned,t.currency)} · réel ${U.money(e.actual,t.currency)} · payé par ${esc(e.paidBy||'—')}</span></div>`).join('')||'<div class="empty-state">Aucune dépense.</div>'; renderSettlements(t,set);}
+function renderSettlements(t,box){const people=t.travellersNames?.length?t.travellersNames:[...new Set(t.expenses.flatMap(e=>[e.paidBy,...(e.sharedWith||[])].filter(Boolean)))]; if(!people.length){box.innerHTML='<p class="muted">Ajoute les prénoms voyageurs et les dépenses payées.</p>';return;} const balance=Object.fromEntries(people.map(p=>[p,0])); t.expenses.forEach(e=>{const amount=U.num(e.actual)||U.num(e.planned); const shared=(e.sharedWith||[]).length?e.sharedWith:people; if(!amount||!e.paidBy)return; balance[e.paidBy]=(balance[e.paidBy]||0)+amount; const part=amount/shared.length; shared.forEach(p=>balance[p]=(balance[p]||0)-part);}); const creditors=Object.entries(balance).filter(([,v])=>v>0.01).sort((a,b)=>b[1]-a[1]); const debtors=Object.entries(balance).filter(([,v])=>v<-0.01).sort((a,b)=>a[1]-b[1]); const moves=[]; debtors.forEach(([d,v])=>{let owe=-v; creditors.forEach(c=>{if(owe<=.01||c[1]<=.01)return; const m=Math.min(owe,c[1]); moves.push(`${esc(d)} doit ${U.money(m,t.currency)} à ${esc(c[0])}`); owe-=m; c[1]-=m;});}); box.innerHTML=`<div class="table-list">${Object.entries(balance).map(([p,v])=>`<div class="meta-pill">${esc(p)} : ${U.money(v,t.currency)}</div>`).join('')}</div><hr>${moves.map(m=>`<div class="step-row">${m}</div>`).join('')||'<p class="good">Comptes équilibrés.</p>'}`;}
+function suggestions(t=activeTrip()){if(!t)return[]; const out=[]; const b=budget(t); if(b.max&&b.total>b.max)out.push({type:'critical',title:'Budget dépassé',text:`Le budget dépasse de ${U.money(b.total-b.max,t.currency)}.`}); if(t.steps.length<2)out.push({type:'warn',title:'Itinéraire incomplet',text:'Ajoute au moins un départ et une destination.'}); t.steps.forEach(s=>{if(!s.address&&!s.lat)out.push({type:'warn',title:'Adresse manquante',text:`${s.name} n’a pas d’adresse ou coordonnées.`}); if(s.departureDate&&s.arrivalDate&&s.departureDate<s.arrivalDate)out.push({type:'critical',title:'Dates incohérentes',text:`${s.name} : départ avant arrivée.`}); if(s.departureDate===s.arrivalDate&&s.departureTime&&s.arrivalTime&&s.departureTime<s.arrivalTime)out.push({type:'critical',title:'Horaires incohérents',text:`${s.name} : heure de départ avant arrivée.`});}); if(t.style==='économique'&&b.max&&b.total>b.max*.75)out.push({type:'warn',title:'Style économique',text:'Tu approches fortement de ton budget maximum.'}); if(t.style==='confort')out.push({type:'good',title:'Style confort',text:'Vérifie les transferts aéroport/hôtel et les marges horaires.'}); if(!out.length)out.push({type:'good',title:'Voyage cohérent',text:'Aucune alerte majeure détectée.'}); return out;}
+function renderSuggestions(){const t=activeTrip(); const sc=$('#suggestionsScore'), list=$('#suggestionsList'); if(!t){sc.innerHTML='';list.innerHTML='<div class="empty-state">Aucun voyage.</div>';return;} const items=suggestions(t), s=score(t); sc.innerHTML=`<div class="stat"><small>Score global</small><strong>${s}%</strong></div><div class="stat"><small>Alertes critiques</small><strong>${items.filter(i=>i.type==='critical').length}</strong></div><div class="stat"><small>À vérifier</small><strong>${items.filter(i=>i.type==='warn').length}</strong></div><div class="stat"><small>Bons points</small><strong>${items.filter(i=>i.type==='good').length}</strong></div>`; list.innerHTML=items.map(i=>`<article class="suggestion-card ${i.type}"><strong>${esc(i.title)}</strong><p>${esc(i.text)}</p><button class="button" data-action="taskFromSuggestion">Ajouter tâche</button></article>`).join('')}
+function autoFix(){const t=activeTrip(); if(!t)return; let changed=false; t.steps.forEach(s=>{if(s.arrivalDate&&!s.departureDate){s.departureDate=s.arrivalDate;changed=true} if(s.departureDate&&s.arrivalDate&&s.departureDate<s.arrivalDate){s.departureDate=s.arrivalDate;changed=true}}); if(changed)persist('Corrections automatiques appliquées.'); else show('Aucune correction sûre à appliquer.');}
+function renderPreparation(){const t=activeTrip(), box=$('#checklists'); if(!t){box.innerHTML='';return;} box.innerHTML=t.checklists.map(b=>`<div class="panel"><div class="row-head"><input class="input" value="${esc(b.title)}" data-check-title="${b.id}"><button class="button button--danger" data-del-check-block="${b.id}">Supprimer</button></div>${(b.items||[]).map(i=>`<label class="check"><input type="checkbox" ${i.done?'checked':''} data-check-item="${b.id}:${i.id}"><input class="input" value="${esc(i.text)}" data-check-text="${b.id}:${i.id}"><button class="button button--danger" data-del-check-item="${b.id}:${i.id}" type="button">×</button></label>`).join('')}<button class="button" data-add-check-item="${b.id}">+ Tâche</button></div>`).join('')}
+function addChecklistBlock(){const t=activeTrip(); if(!t)return; t.checklists.push({id:U.uid(),title:'Nouveau bloc',items:[]}); persist('Bloc ajouté.');}
+function renderJournal(){const t=activeTrip(), box=$('#journalList'); if(!t){box.innerHTML='';return;} box.innerHTML=t.steps.map(s=>`<div class="panel"><h3>${esc(s.name)}</h3><textarea class="input" rows="5" data-journal="${s.id}" placeholder="Notes, souvenirs, avis…">${esc((t.journal.find(j=>j.stepId===s.id)||{}).text||'')}</textarea></div>`).join('')||'<div class="empty-state">Ajoute des étapes pour créer le carnet.</div>';}
+function renderSettings(){const f=$('#settingsForm'); ['autosaveMinutes','carSpeed','trainSpeed','walkSpeed'].forEach(k=>{if(f.elements[k])f.elements[k].value=state.settings[k]??''})}
+function saveSettings(e){e.preventDefault(); const f=e.target; ['autosaveMinutes','carSpeed','trainSpeed','walkSpeed'].forEach(k=>state.settings[k]=U.num(f.elements[k].value)); persist('Paramètres enregistrés.')}
+function renderAccount(){const box=$('#accountPanel'), user=Cloud.getUser(); box.innerHTML=user?`<div class="step-row"><div class="row-head"><div><strong>${esc(user.displayName||'Compte Google')}</strong><p class="muted">${esc(user.email||'')}</p></div>${user.photoURL?`<img src="${esc(user.photoURL)}" style="width:54px;height:54px;border-radius:50%">`:''}</div><div class="button-row"><button class="button" data-action="signout">Déconnexion</button><button class="button button--danger" data-action="deleteCloud">Réinitialiser le compte</button></div></div>`:loginGate();}
+async function loadCommunity(){try{community=await Cloud.listCommunityTrips(); renderCommunity();}catch(e){show('Communauté indisponible : '+(e.message||e),'error')}}
+function renderCommunity(){const grid=$('#communityGrid'); if(!grid)return; const user=Cloud.getUser(); $('#communityAdminPanel').hidden=!(user?.email==='lucas.scribe01@gmail.com'); if(user?.email==='lucas.scribe01@gmail.com') $('#communityAdminPanel').innerHTML='<strong>Mode admin actif</strong><p class="muted">Tu peux retirer une publication problématique.</p>'; const countries=[...new Set(community.map(c=>c.country).filter(Boolean))].sort(); const countrySel=$('#communityCountryFilter'); const current=countrySel.value; countrySel.innerHTML='<option value="">Tous les pays</option>'+countries.map(c=>`<option>${esc(c)}</option>`).join(''); countrySel.value=current; let list=[...community]; const q=$('#communitySearchInput').value.toLowerCase(), cat=$('#communityCategoryFilter').value, country=countrySel.value, sort=$('#communitySortFilter').value; if(q)list=list.filter(c=>JSON.stringify(c).toLowerCase().includes(q)); if(cat)list=list.filter(c=>c.category===cat); if(country)list=list.filter(c=>c.country===country); list.sort((a,b)=>sort==='recent'?(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0):(b.score||0)-(a.score||0)); grid.innerHTML=list.map(c=>`<article class="community-card"><div class="community-card__cover" ${c.coverImage?`style="background-image:url('${esc(c.coverImage)}')"`:''}></div><h3>${esc(c.title)}</h3><p class="muted">${esc(c.country||'Monde')} · ${esc(c.category||'voyage')} · tendance ${c.score||0}</p><p>${esc(c.description||'Itinéraire partagé par la communauté.')}</p><div class="button-row"><button class="button" data-vote="${c.id}:1">+ Tendance</button><button class="button" data-vote="${c.id}:-1">−</button>${c.allowCopy?`<button class="button button--primary" data-copy-community="${c.id}">Copier</button>`:''}${(user?.uid===c.ownerUid||user?.email==='lucas.scribe01@gmail.com')?`<button class="button button--danger" data-remove-community="${c.id}">Retirer</button>`:''}</div></article>`).join('')||'<div class="empty-state">Aucun voyage communautaire pour le moment.</div>';}
+function openPublish(){const t=activeTrip(); if(!t)return show('Sélectionne un voyage à partager.','error'); const f=$('#publishForm'); f.reset(); f.elements.title.value=t.name; f.elements.country.value=t.area; f.elements.coverImage.value=t.coverImage; f.elements.description.value=t.description; $('#publishDialog').showModal();}
+async function publishCommunity(e){e.preventDefault(); const t=activeTrip(); if(!t)return; const f=e.target; try{await Cloud.publishCommunityTrip(t,{title:f.title.value,country:f.country.value,category:f.category.value,coverImage:f.coverImage.value,description:f.description.value,hideBudget:f.hideBudget.checked,allowCopy:f.allowCopy.checked}); $('#publishDialog').close(); show('Voyage publié dans la communauté.'); await loadCommunity();}catch(err){show('Publication impossible : '+(err.message||err),'error')}}
+function renderSearch(){const q=$('#globalSearchInput').value.trim().toLowerCase(), out=$('#globalSearchResults'); if(!q){out.hidden=true;out.innerHTML='';return;} const results=[]; state.trips.forEach(t=>{if(t.name.toLowerCase().includes(q)||t.area.toLowerCase().includes(q))results.push({label:`Voyage · ${t.name}`,go:'trip',trip:t.id}); t.steps.forEach(s=>{if((s.name+s.address+s.notes).toLowerCase().includes(q))results.push({label:`Étape · ${s.name}`,go:'itinerary',trip:t.id})}); t.expenses.forEach(e=>{if((e.label+e.category+e.note).toLowerCase().includes(q))results.push({label:`Dépense · ${e.label}`,go:'budget',trip:t.id})});}); out.innerHTML=results.slice(0,8).map(r=>`<button data-search-go="${r.go}" data-search-trip="${r.trip}">${esc(r.label)}</button>`).join('')||'<button>Aucun résultat</button>'; out.hidden=false;}
+function delegated(e){
+ const el=e.target.closest('button,input,textarea'); if(!el)return; const ds=el.dataset;
+ if(ds.action==='signin')Cloud.signIn().catch(x=>show(x.message,'error')); if(ds.action==='signout')Cloud.signOut(); if(ds.action==='newTrip')newTrip(); if(ds.action==='step')openStep(); if(ds.action==='expense')openExpense(); if(ds.action==='deleteCloud'){if(confirm('Supprimer les données Firebase de ce compte ?'))Cloud.deleteState().then(()=>{state=Store.defaults();saveLocal();renderAll()})}
+ if(ds.go)switchView(ds.go); if(ds.template){const tpl=templates.find(t=>t.name===ds.template); const trip=Store.createTrip({name:tpl.name+' '+new Date().getFullYear(),style:tpl.style}); state.trips.push(trip); state.activeTripId=trip.id; persist('Modèle créé.'); switchView('trip')}
+ if(ds.openTrip){state.activeTripId=ds.openTrip;persist();switchView('trip')} if(ds.dupTrip){const t=state.trips.find(x=>x.id===ds.dupTrip); if(t){const c=Store.normalizeTrip({...JSON.parse(JSON.stringify(t)),id:U.uid(),name:t.name+' copie'}); state.trips.push(c);state.activeTripId=c.id;persist('Voyage dupliqué.')}} if(ds.delTrip){if(confirm('Supprimer ce voyage ?')){state.trips=state.trips.filter(t=>t.id!==ds.delTrip);state.activeTripId=state.trips[0]?.id||null;persist('Voyage supprimé.')}}
+ if(ds.editStep)openStep(ds.editStep); if(ds.delStep){const t=activeTrip(); t.steps=t.steps.filter(s=>s.id!==ds.delStep);persist('Étape supprimée.')} if(ds.upStep||ds.downStep){const t=activeTrip(); const id=ds.upStep||ds.downStep; const i=t.steps.findIndex(s=>s.id===id); const j=ds.upStep?i-1:i+1; if(i>=0&&j>=0&&j<t.steps.length){[t.steps[i],t.steps[j]]=[t.steps[j],t.steps[i]];persist('Ordre modifié.')}} if(ds.addStepDate!==undefined){openStep(); $('#stepForm').elements.arrivalDate.value=ds.addStepDate; $('#stepForm').elements.departureDate.value=ds.addStepDate;}
+ if(ds.editExpense)openExpense(ds.editExpense); if(ds.delExpense){const t=activeTrip(); t.expenses=t.expenses.filter(x=>x.id!==ds.delExpense);persist('Dépense supprimée.')}
+ if(ds.vote){const [id,d]=ds.vote.split(':'); Cloud.voteCommunityTrip(id,Number(d)).then(loadCommunity).catch(x=>show(x.message,'error'))} if(ds.copyCommunity){const c=community.find(x=>x.id===ds.copyCommunity); if(c?.trip){const trip=Store.normalizeTrip({...c.trip,id:U.uid(),name:c.trip.name+' — copie'}); state.trips.push(trip);state.activeTripId=trip.id;persist('Voyage copié.')}} if(ds.removeCommunity){if(confirm('Retirer cette publication ?'))Cloud.removeCommunityTrip(ds.removeCommunity).then(loadCommunity).catch(x=>show(x.message,'error'))}
+ if(ds.searchGo){state.activeTripId=ds.searchTrip; $('#globalSearchResults').hidden=true; $('#globalSearchInput').value=''; persist(); switchView(ds.searchGo)}
+ if(ds.addCheckItem){const t=activeTrip(),b=t.checklists.find(x=>x.id===ds.addCheckItem); b.items.push({id:U.uid(),text:'Nouvelle tâche',done:false});persist('Tâche ajoutée.')} if(ds.delCheckBlock){const t=activeTrip();t.checklists=t.checklists.filter(b=>b.id!==ds.delCheckBlock);persist('Bloc supprimé.')} if(ds.delCheckItem){const [bid,iid]=ds.delCheckItem.split(':'); const b=activeTrip().checklists.find(x=>x.id===bid); b.items=b.items.filter(i=>i.id!==iid);persist('Tâche supprimée.')}
+ if(ds.geo){const g=JSON.parse(ds.geo); const f=$('#stepForm'); f.elements.name.value=g.name; f.elements.address.value=g.address; f.elements.lat.value=g.lat; f.elements.lng.value=g.lng; $('#geocodeResults').innerHTML='';}
+}
+document.addEventListener('change',e=>{const ds=e.target.dataset,t=activeTrip(); if(!t)return; if(ds.checkItem){const[bid,iid]=ds.checkItem.split(':'); const it=t.checklists.find(b=>b.id===bid)?.items.find(i=>i.id===iid); if(it){it.done=e.target.checked;persist()}}});
+document.addEventListener('input',e=>{const ds=e.target.dataset,t=activeTrip(); if(!t)return; if(ds.checkTitle){const b=t.checklists.find(x=>x.id===ds.checkTitle); if(b){b.title=e.target.value;scheduleSave()}} if(ds.checkText){const[bid,iid]=ds.checkText.split(':'); const it=t.checklists.find(b=>b.id===bid)?.items.find(i=>i.id===iid); if(it){it.text=e.target.value;scheduleSave()}} if(ds.journal){let j=t.journal.find(x=>x.stepId===ds.journal); if(!j){j={stepId:ds.journal,text:''};t.journal.push(j)} j.text=e.target.value; scheduleSave();}});
+window.addEventListener('DOMContentLoaded',init);
 })();
