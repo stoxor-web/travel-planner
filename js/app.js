@@ -105,6 +105,23 @@
     on('communityCountryFilter', 'change', renderCommunity);
     on('communityCategoryFilter', 'change', renderCommunity);
     on('communitySortFilter', 'change', renderCommunity);
+    on('openWizardBtn', 'click', openWizardDialog);
+    on('tripWizardForm', 'submit', saveWizardTrip);
+    on('addChecklistBlockBtn', 'click', addChecklistBlock);
+    on('fabMainBtn', 'click', toggleFabMenu);
+    on('fabAddTrip', 'click', () => { closeFabMenu(); createNewTrip(); });
+    on('fabAddStep', 'click', () => { closeFabMenu(); openStepDialog(); });
+    on('fabAddExpense', 'click', () => { closeFabMenu(); openExpenseDialog(); });
+    on('fabOpenChecklist', 'click', () => { closeFabMenu(); switchView('preparation'); });
+    on('globalSearchInput', 'input', renderGlobalSearch);
+    on('globalSearchInput', 'focus', renderGlobalSearch);
+    document.addEventListener('click', event => {
+      if (!event.target.closest('.global-search')) hideGlobalSearch();
+      if (!event.target.closest('.fab')) closeFabMenu();
+    });
+    bindShareActions();
+    bindPlaceSearch();
+    bindStepDateGuards();
     bindCloudActions();
     window.addEventListener('resize', () => MapView.invalidate());
     $$('[data-close-dialog]').forEach(button => button.addEventListener('click', () => {
@@ -135,6 +152,7 @@
   function renderAll() {
     renderTripSelector();
     renderDashboard();
+    renderTripTemplates();
     renderCommunity();
     renderTripForm();
     renderSteps();
@@ -145,6 +163,7 @@
     renderJournal();
     renderSettings();
     renderMap();
+    renderLegalYear();
   }
 
   function activeTrip() {
@@ -190,57 +209,45 @@
 
   function renderDashboard() {
     const grid = $('#tripsGrid');
+    const focus = $('#dashboardFocus');
     const user = CloudSync?.getUser();
 
     if (cloudLoading) {
-      grid.innerHTML = '<div class="empty-state">Chargement de Firebase…</div>';
+      if (focus) focus.innerHTML = '';
+      grid.innerHTML = '<div class="empty-state">Chargement de tes voyages depuis Firebase…</div>';
       return;
     }
 
     if (!user || !appReady) {
+      if (focus) focus.innerHTML = '';
       grid.innerHTML = `
-        <div class="login-gate">
-          <div class="login-gate__icon">☁️</div>
-          <h2>Connexion Google requise</h2>
-          <p>Tes voyages sont maintenant stockés uniquement dans Firebase. Connecte-toi pour charger automatiquement tes données et synchroniser chaque modification.</p>
-          <button class="button button--primary" id="dashboardSignInBtn">Se connecter avec Google</button>
-          <small>Le site n’utilise plus de sauvegarde locale de voyages ni d’export JSON.</small>
-        </div>
-      `;
+        <div class="auth-landing">
+          <div class="auth-card">
+            <span class="auth-card__badge"><span></span> Espace privé synchronisé</span>
+            <h2>Prépare, suis et partage tes voyages.</h2>
+            <p>Connecte-toi avec Google pour retrouver tes voyages, ton budget, ton planning et tes checklists sur tous tes appareils.</p>
+            <button class="button button--primary button--google auth-card__button" id="dashboardSignInBtn"><span class="google-mark">G</span> Continuer avec Google</button>
+            <div class="auth-card__meta"><span>Cloud Firebase</span><span>Mode voyage</span><span>Carte OSM stable</span></div>
+          </div>
+          <div class="auth-preview">
+            <div class="auth-preview__top"><span></span><span></span><span></span></div>
+            <div class="auth-route-card"><small>Aperçu</small><strong>Roadtrip Tokyo → Kyoto</strong><div class="auth-route-line"><i></i><i></i><i></i><i></i></div></div>
+            <div class="auth-mini-grid"><div><strong>82%</strong><small>prêt</small></div><div><strong>12</strong><small>étapes</small></div><div><strong>3</strong><small>alertes</small></div></div>
+          </div>
+        </div>`;
       document.getElementById('dashboardSignInBtn')?.addEventListener('click', handleCloudSignIn);
       return;
     }
 
+    const trip = activeTrip();
+    renderDashboardFocus(trip);
+
     if (!state.trips.length) {
-      grid.innerHTML = '<div class="empty-state">Aucun voyage dans Firebase pour ce compte. Crée ton premier itinéraire.</div>';
+      grid.innerHTML = '<div class="empty-state">Aucun voyage pour ce compte. Crée ton premier itinéraire ou utilise un modèle.</div>';
       return;
     }
 
-    grid.innerHTML = state.trips.map(trip => {
-      const budget = Budget.computeBudget(trip);
-      return `
-        <article class="trip-card">
-          <div class="trip-card__top">
-            <div>
-              <span class="badge">${U.escapeHtml(trip.status)}</span>
-              <h3>${U.escapeHtml(trip.name)}</h3>
-            </div>
-            <span>${trip.steps.length} étape(s)</span>
-          </div>
-          <p>${U.escapeHtml(trip.description || 'Aucune description pour le moment.')}</p>
-          <div class="trip-card__meta">
-            <span>📅 ${U.formatDate(trip.startDate)} → ${U.formatDate(trip.endDate)}</span>
-            <span>🌍 ${U.escapeHtml(trip.area || 'zone non renseignée')}</span>
-            <span>💶 ${U.formatMoney(budget.total, trip.currency)}${trip.maxBudget ? ` / ${U.formatMoney(trip.maxBudget, trip.currency)}` : ''}</span>
-          </div>
-          <div class="trip-card__actions">
-            <button class="button button--primary" data-open-trip="${trip.id}">Modifier</button>
-            <button class="button" data-duplicate-trip="${trip.id}">Dupliquer</button>
-            <button class="button" data-delete-trip="${trip.id}">Supprimer</button>
-          </div>
-        </article>
-      `;
-    }).join('');
+    grid.innerHTML = state.trips.map(trip => renderTripCard(trip)).join('');
     grid.querySelectorAll('[data-open-trip]').forEach(button => button.addEventListener('click', () => {
       if (!requireCloudReady()) return;
       state.activeTripId = button.dataset.openTrip;
@@ -248,6 +255,18 @@
       renderAll();
       scheduleCloudAutosave();
       switchView('trip');
+    }));
+    grid.querySelectorAll('[data-continue-trip]').forEach(button => button.addEventListener('click', () => {
+      state.activeTripId = button.dataset.continueTrip;
+      state = Storage.save(state);
+      renderAll();
+      switchView('itinerary');
+    }));
+    grid.querySelectorAll('[data-share-trip]').forEach(button => button.addEventListener('click', () => {
+      state.activeTripId = button.dataset.shareTrip;
+      state = Storage.save(state);
+      renderAll();
+      openShareDialog();
     }));
     grid.querySelectorAll('[data-duplicate-trip]').forEach(button => button.addEventListener('click', () => {
       if (!requireCloudReady()) return;
@@ -257,6 +276,89 @@
       showStatus('Voyage dupliqué et synchronisé.');
     }));
     grid.querySelectorAll('[data-delete-trip]').forEach(button => button.addEventListener('click', () => deleteTrip(button.dataset.deleteTrip)));
+  }
+
+  function renderDashboardFocus(trip) {
+    const container = $('#dashboardFocus');
+    if (!container) return;
+    if (!trip) {
+      container.innerHTML = '';
+      return;
+    }
+    const budget = Budget.computeBudget(trip);
+    const insight = Suggestions.evaluate(trip, state.settings);
+    const next = nextTravelItem(trip);
+    const cover = trip.coverImage ? `style="background-image:linear-gradient(120deg,rgba(7,22,43,.78),rgba(15,118,110,.42)),url('${escapeAttr(trip.coverImage)}')"` : '';
+    container.innerHTML = `
+      <section class="control-center panel">
+        <div class="control-center__cover" ${cover}>
+          <span class="badge badge--glass">${U.escapeHtml(trip.status || 'brouillon')}</span>
+          <h2>${U.escapeHtml(trip.name)}</h2>
+          <p>${U.escapeHtml(trip.area || 'Zone à préciser')} · ${getTripDurationDays(trip) || 1} jour(s) · ${Number(trip.travellers) || 1} voyageur(s)</p>
+        </div>
+        <div class="control-center__body">
+          <div class="quick-summary">
+            <article><span>Préparation</span><strong>${insight.score}%</strong></article>
+            <article><span>Budget</span><strong>${U.formatMoney(budget.total, trip.currency)}</strong><small>${trip.maxBudget ? `sur ${U.formatMoney(trip.maxBudget, trip.currency)}` : 'plafond libre'}</small></article>
+            <article><span>Étapes</span><strong>${trip.steps.length}</strong><small>${Itinerary.buildSegments(trip, state.settings).length} trajet(s)</small></article>
+            <article><span>Alertes</span><strong>${insight.items.filter(item => item.level === 'danger' || item.level === 'warning').length}</strong><small>à vérifier</small></article>
+          </div>
+          <div class="travel-mode-card">
+            <p class="eyebrow">Mode voyage</p>
+            <h3>${next ? U.escapeHtml(next.title) : 'Prêt à partir'}</h3>
+            <p>${next ? U.escapeHtml(next.meta) : 'Ajoute des étapes datées pour obtenir une consultation rapide pendant le séjour.'}</p>
+            <div class="button-row">
+              <button class="button button--primary" data-open-view="itinerary">Voir le planning</button>
+              <button class="button" data-open-view="budget">Dépense rapide</button>
+              <button class="button" data-open-view="map">Carte</button>
+            </div>
+          </div>
+        </div>
+      </section>`;
+    container.querySelectorAll('[data-open-view]').forEach(button => button.addEventListener('click', () => switchView(button.dataset.openView)));
+  }
+
+  function renderTripCard(trip) {
+    const budget = Budget.computeBudget(trip);
+    const insight = Suggestions.evaluate(trip, state.settings);
+    const cover = trip.coverImage ? `style="background-image:linear-gradient(180deg,rgba(7,23,57,.06),rgba(7,23,57,.74)),url('${escapeAttr(trip.coverImage)}')"` : '';
+    const next = nextTravelItem(trip);
+    return `
+      <article class="trip-card trip-card--pro">
+        <div class="trip-card__cover" ${cover}>
+          <span class="badge badge--glass">${U.escapeHtml(trip.status)}</span>
+          <span class="trip-score">${insight.score}% prêt</span>
+        </div>
+        <div class="trip-card__content">
+          <div class="trip-card__top">
+            <div><h3>${U.escapeHtml(trip.name)}</h3><p>${U.escapeHtml(trip.area || 'zone non renseignée')}</p></div>
+            <span>${trip.steps.length} étape(s)</span>
+          </div>
+          <div class="trip-card__meta trip-card__meta--grid">
+            <span>📅 ${U.formatDate(trip.startDate)} → ${U.formatDate(trip.endDate)}</span>
+            <span>💶 ${U.formatMoney(budget.total, trip.currency)}${trip.maxBudget ? ` / ${U.formatMoney(trip.maxBudget, trip.currency)}` : ''}</span>
+            <span>🧭 ${next ? U.escapeHtml(next.title) : 'Planning à compléter'}</span>
+          </div>
+          <div class="progress"><span style="width:${Math.min(100, insight.score)}%"></span></div>
+          <div class="trip-card__actions">
+            <button class="button button--primary" data-continue-trip="${trip.id}">Continuer</button>
+            <button class="button" data-open-trip="${trip.id}">Modifier</button>
+            <button class="button" data-share-trip="${trip.id}">Partager</button>
+            <button class="button" data-duplicate-trip="${trip.id}">Dupliquer</button>
+            <button class="button button--danger" data-delete-trip="${trip.id}">Supprimer</button>
+          </div>
+        </div>
+      </article>`;
+  }
+
+  function nextTravelItem(trip) {
+    const today = new Date();
+    const todayKey = today.toISOString().slice(0, 10);
+    const steps = U.sortSteps(trip?.steps || []);
+    const next = steps.find(step => (step.arrivalDate || '') >= todayKey) || steps[0];
+    if (!next) return null;
+    const time = [next.arrivalDate ? U.formatDate(next.arrivalDate) : '', next.arrivalTime || ''].filter(Boolean).join(' · ');
+    return { title: next.name, meta: `${next.type || 'étape'}${time ? ` · ${time}` : ''}${next.address ? ` · ${next.address}` : ''}` };
   }
 
 
@@ -698,7 +800,7 @@
     list.querySelectorAll('[data-move-step]').forEach(button => button.addEventListener('click', () => moveStep(button.dataset.stepId, button.dataset.moveStep)));
   }
 
-  function openStepDialog(stepId = null) {
+  function openStepDialog(stepId = null, presetDate = '') {
     const trip = activeTrip();
     if (!trip) return showStatus('Crée d’abord un voyage.');
     const form = $('#stepForm');
@@ -713,8 +815,9 @@
     if (form.elements.address) form.elements.address.value = step?.address || '';
     if (form.elements.arrivalTime) form.elements.arrivalTime.value = step?.arrivalTime || '';
     if (form.elements.departureTime) form.elements.departureTime.value = step?.departureTime || '';
-    form.elements.arrivalDate.value = step?.arrivalDate || '';
-    form.elements.departureDate.value = step?.departureDate || '';
+    form.elements.arrivalDate.value = step?.arrivalDate || presetDate || '';
+    form.elements.departureDate.value = step?.departureDate || presetDate || '';
+    updateStepDateStatus();
     form.elements.duration.value = step?.duration || '';
     form.elements.cost.value = step?.cost || '';
     form.elements.priority.value = step?.priority || 'optionnel';
@@ -757,6 +860,12 @@
       segmentNote: existing?.segmentNote || '',
       journal: existing?.journal || { notes: '', photoLinks: '', rating: '', realExpenses: '', weather: '', afterthoughts: '' }
     };
+    const validation = validateStepDates(step);
+    if (!validation.ok) {
+      showStatus(validation.message);
+      updateStepDateStatus(validation.message);
+      return;
+    }
     const index = trip.steps.findIndex(item => item.id === id);
     if (index >= 0) trip.steps[index] = step;
     else trip.steps.push(step);
@@ -796,6 +905,18 @@
   function renderItinerary() {
     const trip = activeTrip();
     Itinerary.renderSummary($('#itinerarySummary'), trip, state.settings);
+    Itinerary.renderDayPlanner($('#dayPlannerBoard'), trip, state.settings, {
+      addStep: date => openStepDialog(null, date),
+      editStep: openStepDialog,
+      moveStepToDay: (stepId, date) => {
+        const current = activeTrip();
+        const step = current?.steps.find(item => item.id === stepId);
+        if (!step) return;
+        step.arrivalDate = date;
+        if (!step.departureDate || step.departureDate < date) step.departureDate = date;
+        persist('Étape déplacée.');
+      }
+    });
     Itinerary.renderItinerary($('#itineraryList'), trip, state.settings, (stepId, field, value) => {
       const current = activeTrip();
       const step = current?.steps.find(item => item.id === stepId);
@@ -808,9 +929,29 @@
   function renderBudget() {
     const trip = activeTrip();
     Budget.renderStats($('#budgetStats'), trip);
+    renderBudgetAlerts(trip);
+    Budget.renderDaily($('#budgetDaily'), trip);
+    Budget.renderPeople($('#budgetPeople'), trip);
     Budget.renderBreakdown($('#budgetBreakdown'), trip);
     Budget.drawChart($('#budgetChart'), trip);
     Budget.renderExpenses($('#expensesList'), trip, { edit: openExpenseDialog, delete: deleteExpense });
+  }
+
+  function renderBudgetAlerts(trip) {
+    const container = $('#budgetAlerts');
+    if (!container) return;
+    if (!trip) {
+      container.innerHTML = '';
+      return;
+    }
+    const budget = Budget.computeBudget(trip);
+    const alerts = [];
+    if (budget.max && budget.total > budget.max) alerts.push(`Budget prévu dépassé de ${U.formatMoney(budget.total - budget.max, trip.currency)}.`);
+    if (budget.actualTotal > budget.plannedTotal && budget.plannedTotal > 0) alerts.push(`Les dépenses réelles dépassent le prévu de ${U.formatMoney(budget.actualTotal - budget.plannedTotal, trip.currency)}.`);
+    const names = budget.names || [];
+    const unbalanced = names.filter(name => Math.abs(budget.balances?.[name]?.balance || 0) > 1);
+    if (unbalanced.length > 1) alerts.push('Répartition type TriCount : certaines personnes doivent équilibrer les paiements.');
+    container.innerHTML = alerts.length ? alerts.map(text => `<div class="budget-alert">⚠️ ${U.escapeHtml(text)}</div>`).join('') : '<div class="budget-ok">✅ Budget cohérent pour le moment.</div>';
   }
 
   function openExpenseDialog(expenseId = null) {
@@ -818,17 +959,25 @@
     if (!trip) return showStatus('Crée d’abord un voyage.');
     const form = $('#expenseForm');
     form.reset();
+    const names = Budget.travellerNames(trip);
     form.elements.stepId.innerHTML = '<option value="">Aucune étape</option>' + U.sortSteps(trip.steps).map(step => `<option value="${step.id}">${U.escapeHtml(step.name)}</option>`).join('');
+    form.elements.paidBy.innerHTML = '<option value="">Non renseigné</option>' + names.map(name => `<option value="${U.escapeHtml(name)}">${U.escapeHtml(name)}</option>`).join('');
     const expense = trip.expenses.find(item => item.id === expenseId);
     $('#expenseDialogTitle').textContent = expense ? 'Modifier une dépense' : 'Ajouter une dépense';
     form.elements.id.value = expense?.id || '';
     form.elements.label.value = expense?.label || '';
     form.elements.category.value = expense?.category || 'autres';
-    form.elements.amount.value = expense?.amount || '';
+    form.elements.plannedAmount.value = expense?.plannedAmount ?? expense?.amount ?? '';
+    form.elements.actualAmount.value = expense?.actualAmount ?? expense?.realAmount ?? '';
     form.elements.status.value = expense?.status || 'prévue';
+    form.elements.paidBy.value = expense?.paidBy || '';
     form.elements.date.value = expense?.date || '';
     form.elements.stepId.value = expense?.stepId || '';
     form.elements.note.value = expense?.note || '';
+    const split = new Set(expense?.splitBetween || expense?.splitWith || names);
+    $('#expenseSplitPeople').innerHTML = names.map(name => `
+      <label class="chip-check"><input type="checkbox" name="splitBetween" value="${U.escapeHtml(name)}" ${split.has(name) ? 'checked' : ''} /> <span>${U.escapeHtml(name)}</span></label>
+    `).join('');
     $('#expenseDialog').showModal();
   }
 
@@ -839,12 +988,18 @@
     if (!trip) return;
     const data = new FormData(event.currentTarget);
     const id = data.get('id') || U.uid('expense');
+    const plannedAmount = Number(data.get('plannedAmount')) || 0;
+    const actualAmount = Number(data.get('actualAmount')) || 0;
     const expense = {
       id,
       label: String(data.get('label') || 'Dépense'),
       category: String(data.get('category') || 'autres'),
-      amount: Number(data.get('amount')) || 0,
+      plannedAmount,
+      actualAmount,
+      amount: plannedAmount,
       status: String(data.get('status') || 'prévue'),
+      paidBy: String(data.get('paidBy') || ''),
+      splitBetween: data.getAll('splitBetween').map(String),
       date: String(data.get('date') || ''),
       stepId: String(data.get('stepId') || ''),
       note: String(data.get('note') || '')
@@ -993,8 +1148,272 @@
   function renderMap() {
     const trip = activeTrip();
     MapView.renderFilters($('#mapFilters'), trip, () => renderMap());
+    MapView.renderRoutes?.($('#mapRoutesList'), trip, state.settings, (stepId, field, value) => {
+      const current = activeTrip();
+      const step = current?.steps.find(item => item.id === stepId);
+      if (!step) return;
+      step[field] = field === 'segmentCost' ? Number(value) || 0 : value;
+      persist('Trajet mis à jour.');
+    });
     MapView.renderMapSteps($('#mapStepsList'), trip);
     MapView.updateMap(trip, state.settings);
+  }
+
+  function renderTripTemplates() {
+    const container = $('#tripTemplates');
+    if (!container) return;
+    const templates = [
+      { key: 'citybreak', title: 'City break', icon: '🏙️', desc: '2 à 4 jours, visites, restaurants, hôtel central.' },
+      { key: 'roadtrip', title: 'Roadtrip', icon: '🚗', desc: 'Trajets, pauses, carburant, étapes intermédiaires.' },
+      { key: 'plane', title: 'Voyage en avion', icon: '✈️', desc: 'Aéroport, vols, transferts et marges horaires.' },
+      { key: 'nature', title: 'Nature / aventure', icon: '🥾', desc: 'Randonnée, météo, santé, checklist terrain.' }
+    ];
+    container.innerHTML = templates.map(t => `<button type="button" class="template-card" data-template-create="${t.key}"><span>${t.icon}</span><strong>${t.title}</strong><small>${t.desc}</small></button>`).join('');
+    container.querySelectorAll('[data-template-create]').forEach(button => button.addEventListener('click', () => createTripFromTemplate(button.dataset.templateCreate)));
+  }
+
+  function createTripFromTemplate(template = 'citybreak') {
+    if (!requireCloudReady()) return;
+    const presets = {
+      citybreak: { name: 'Nouveau city break', style: 'équilibré', pace: 'normal', interests: 'ville, culture, gastronomie', area: '' },
+      roadtrip: { name: 'Nouveau roadtrip', style: 'aventure', pace: 'normal', interests: 'route, nature, points de vue', area: '' },
+      plane: { name: 'Nouveau voyage en avion', style: 'confort', pace: 'normal', interests: 'ville, culture, transports', area: '' },
+      nature: { name: 'Nouvelle aventure nature', style: 'aventure', pace: 'tranquille', interests: 'nature, randonnée, photo', area: '' }
+    };
+    const trip = Storage.normalizeTrip({ ...(presets[template] || presets.citybreak), currency: '€', travellers: 1, status: 'brouillon', steps: [], expenses: [] });
+    trip.checklists = U.createDefaultChecklists();
+    if (template === 'roadtrip') trip.checklists.voiture ||= [{ id: U.uid('todo'), text: 'Vérifier le véhicule', done: false }];
+    if (template === 'plane') trip.checklists.avion ||= [{ id: U.uid('todo'), text: 'Check-in en ligne', done: false }];
+    if (template === 'nature') trip.checklists.randonnée ||= [{ id: U.uid('todo'), text: 'Vérifier la météo', done: false }];
+    state = Storage.upsertTrip(state, trip);
+    renderAll();
+    scheduleCloudAutosave();
+    switchView('trip');
+    showStatus('Modèle de voyage créé.');
+  }
+
+  function openWizardDialog() {
+    if (!requireCloudReady()) return;
+    const dialog = $('#tripWizardDialog');
+    const form = $('#tripWizardForm');
+    if (!dialog || !form) return;
+    form.reset();
+    dialog.showModal();
+  }
+
+  function saveWizardTrip(event) {
+    event.preventDefault();
+    if (!requireCloudReady()) return;
+    const data = new FormData(event.currentTarget);
+    const template = String(data.get('template') || '');
+    const trip = Storage.normalizeTrip({
+      name: String(data.get('name') || 'Nouveau voyage'),
+      area: String(data.get('area') || ''),
+      coverImage: String(data.get('coverImage') || ''),
+      startDate: String(data.get('startDate') || ''),
+      endDate: String(data.get('endDate') || ''),
+      travellersNames: String(data.get('travellersNames') || ''),
+      travellers: Math.max(1, String(data.get('travellersNames') || '').split(',').filter(Boolean).length || 1),
+      maxBudget: Number(data.get('maxBudget')) || 0,
+      currency: String(data.get('currency') || '€'),
+      style: String(data.get('style') || 'équilibré'),
+      pace: String(data.get('pace') || 'normal'),
+      interests: String(data.get('interests') || ''),
+      description: String(data.get('description') || ''),
+      status: 'brouillon',
+      steps: []
+    });
+    const startName = String(data.get('startPlace') || '').trim();
+    const endName = String(data.get('endPlace') || '').trim();
+    if (startName) trip.steps.push({ order: 0, name: startName, type: template === 'plane' ? 'aéroport' : 'ville', arrivalDate: trip.startDate, departureDate: trip.startDate, color: '#2563eb', priority: 'indispensable', transportToNext: template === 'plane' ? 'plane' : 'car' });
+    if (endName) trip.steps.push({ order: trip.steps.length, name: endName, type: 'ville', arrivalDate: trip.endDate || trip.startDate, departureDate: trip.endDate || trip.startDate, color: '#14b8a6', priority: 'indispensable' });
+    state = Storage.upsertTrip(state, trip);
+    $('#tripWizardDialog').close();
+    renderAll();
+    scheduleCloudAutosave();
+    switchView('itinerary');
+    showStatus('Voyage guidé créé.');
+  }
+
+  function renderGlobalSearch() {
+    const input = $('#globalSearchInput');
+    const box = $('#globalSearchResults');
+    if (!input || !box) return;
+    const query = input.value.trim().toLowerCase();
+    if (!query || !appReady) return hideGlobalSearch();
+    const results = [];
+    (state.trips || []).forEach(trip => {
+      if (`${trip.name} ${trip.area} ${trip.description}`.toLowerCase().includes(query)) results.push({ label: `Voyage · ${trip.name}`, view: 'dashboard', tripId: trip.id });
+      (trip.steps || []).forEach(step => {
+        if (`${step.name} ${step.address} ${step.notes} ${step.type}`.toLowerCase().includes(query)) results.push({ label: `Étape · ${step.name}`, view: 'itinerary', tripId: trip.id });
+      });
+      (trip.expenses || []).forEach(expense => {
+        if (`${expense.label} ${expense.category} ${expense.note}`.toLowerCase().includes(query)) results.push({ label: `Dépense · ${expense.label}`, view: 'budget', tripId: trip.id });
+      });
+    });
+    if (!results.length) return hideGlobalSearch();
+    box.hidden = false;
+    box.innerHTML = results.slice(0, 8).map((result, index) => `<button type="button" data-search-index="${index}">${U.escapeHtml(result.label)}</button>`).join('');
+    box.querySelectorAll('[data-search-index]').forEach(button => button.addEventListener('click', () => {
+      const result = results[Number(button.dataset.searchIndex)];
+      state.activeTripId = result.tripId;
+      state = Storage.save(state);
+      renderAll();
+      switchView(result.view);
+      hideGlobalSearch();
+      input.value = '';
+    }));
+  }
+
+  function hideGlobalSearch() {
+    const box = $('#globalSearchResults');
+    if (box) { box.hidden = true; box.innerHTML = ''; }
+  }
+
+  function addChecklistBlock() {
+    if (!requireCloudReady()) return;
+    const trip = activeTrip();
+    if (!trip) return showStatus('Sélectionne un voyage.');
+    const name = prompt('Nom du nouveau bloc ?', 'nouvelle liste');
+    if (!name) return;
+    trip.checklists ||= U.createDefaultChecklists();
+    if (!trip.checklists[name]) trip.checklists[name] = [];
+    persist('Bloc de préparation ajouté.');
+  }
+
+  function toggleFabMenu() {
+    const menu = $('#fabMenu');
+    if (menu) menu.hidden = !menu.hidden;
+  }
+
+  function closeFabMenu() {
+    const menu = $('#fabMenu');
+    if (menu) menu.hidden = true;
+  }
+
+  function bindShareActions() {
+    const bind = (id, handler) => document.getElementById(id)?.addEventListener('click', handler);
+    bind('createPublicShareBtn', createPublicShare);
+    bind('createPrivateShareBtn', createPrivateShare);
+    bind('copyShareLinkBtn', copyShareLink);
+  }
+
+  function openShareDialog() {
+    if (!requireCloudReady()) return;
+    const dialog = $('#shareDialog');
+    if (!dialog) return showStatus('Module de partage introuvable.');
+    $('#shareLinkInput').value = '';
+    dialog.showModal();
+  }
+
+  function publicTripUrl(kind = 'share') {
+    const trip = activeTrip();
+    if (!trip) return location.href.split('#')[0];
+    return `${location.href.split('#')[0]}#${kind}:${encodeURIComponent(trip.id)}`;
+  }
+
+  function createPublicShare() {
+    $('#shareLinkInput').value = publicTripUrl('share');
+    showStatus('Lien lecture seule préparé.');
+  }
+
+  function createPrivateShare() {
+    $('#shareLinkInput').value = publicTripUrl('collab');
+    showStatus('Lien de collaboration préparé. Vérifie les emails autorisés.');
+  }
+
+  async function copyShareLink() {
+    const value = $('#shareLinkInput')?.value || publicTripUrl('share');
+    try { await navigator.clipboard.writeText(value); showStatus('Lien copié.'); }
+    catch { showStatus('Copie impossible. Sélectionne le lien manuellement.'); }
+  }
+
+  function bindPlaceSearch() {
+    const input = $('#placeSearchInput');
+    const button = $('#placeSearchBtn');
+    if (!input || !button || !window.TravelGeocoder) return;
+    button.addEventListener('click', runPlaceSearch);
+    input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); runPlaceSearch(); } });
+  }
+
+  async function runPlaceSearch() {
+    const input = $('#placeSearchInput');
+    const status = $('#placeSearchStatus');
+    const results = $('#placeSearchResults');
+    const query = input?.value?.trim();
+    if (!query || !window.TravelGeocoder) return;
+    status.textContent = 'Recherche…';
+    results.hidden = true;
+    results.innerHTML = '';
+    try {
+      const items = await window.TravelGeocoder.search(query, { trip: activeTrip() });
+      if (!items.length) {
+        status.textContent = 'Aucun résultat trouvé.';
+        return;
+      }
+      status.textContent = `${items.length} résultat(s)`;
+      results.hidden = false;
+      results.innerHTML = items.slice(0, 6).map((item, index) => `<button type="button" data-place-index="${index}"><strong>${U.escapeHtml(item.name)}</strong><small>${U.escapeHtml(item.address || '')}</small></button>`).join('');
+      results.querySelectorAll('[data-place-index]').forEach(button => button.addEventListener('click', () => applyPlaceResult(items[Number(button.dataset.placeIndex)])));
+    } catch (error) {
+      console.error(error);
+      status.textContent = 'Recherche indisponible pour le moment.';
+    }
+  }
+
+  function applyPlaceResult(item) {
+    const form = $('#stepForm');
+    if (!form || !item) return;
+    form.elements.name.value = item.name || form.elements.name.value;
+    form.elements.address.value = item.address || '';
+    form.elements.lat.value = item.lat || '';
+    form.elements.lng.value = item.lng || '';
+    if (item.type && [...form.elements.type.options].some(option => option.value === item.type)) form.elements.type.value = item.type;
+    $('#placeSearchResults').hidden = true;
+    $('#placeSearchStatus').textContent = 'Lieu appliqué à l’étape.';
+  }
+
+  function bindStepDateGuards() {
+    const form = $('#stepForm');
+    if (!form) return;
+    ['arrivalDate', 'arrivalTime', 'departureDate', 'departureTime'].forEach(name => form.elements[name]?.addEventListener('change', () => {
+      normalizeStepDatesInForm(form);
+      updateStepDateStatus();
+    }));
+  }
+
+  function normalizeStepDatesInForm(form) {
+    if (!form) return;
+    const arrivalDate = form.elements.arrivalDate.value;
+    if (arrivalDate && !form.elements.departureDate.value) form.elements.departureDate.value = arrivalDate;
+    if (arrivalDate && form.elements.departureDate.value && form.elements.departureDate.value < arrivalDate) form.elements.departureDate.value = arrivalDate;
+    if (arrivalDate && form.elements.departureDate.value === arrivalDate && form.elements.arrivalTime.value && form.elements.departureTime.value && form.elements.departureTime.value < form.elements.arrivalTime.value) {
+      form.elements.departureTime.value = form.elements.arrivalTime.value;
+    }
+  }
+
+  function validateStepDates(step) {
+    if (!step.arrivalDate || !step.departureDate) return { ok: true };
+    if (step.departureDate < step.arrivalDate) return { ok: false, message: 'Le départ ne peut pas être avant l’arrivée.' };
+    if (step.departureDate === step.arrivalDate && step.arrivalTime && step.departureTime && step.departureTime < step.arrivalTime) return { ok: false, message: 'L’heure de départ ne peut pas être avant l’heure d’arrivée.' };
+    return { ok: true };
+  }
+
+  function updateStepDateStatus(message = '') {
+    const status = $('#stepDateStatus');
+    if (!status) return;
+    if (message) {
+      status.textContent = message;
+      status.classList.add('is-error');
+      return;
+    }
+    status.classList.remove('is-error');
+    status.textContent = 'Indique quand tu arrives sur place, puis quand tu repars. Le départ ne peut pas être avant l’arrivée.';
+  }
+
+  function renderLegalYear() {
+    const year = $('#legalYear');
+    if (year) year.textContent = new Date().getFullYear();
   }
 
   function bindCloudActions() {
@@ -1107,7 +1526,12 @@
     if (avatar && user) avatar.src = user.photoURL || '';
     if (name && user) name.textContent = user.displayName || 'Compte Google';
     if (email && user) email.textContent = user.email || '';
-    if (topButton) topButton.textContent = user ? '☁️ Connecté' : '☁️ Connexion Google';
+    if (topButton) {
+      topButton.classList.toggle('is-connected', Boolean(user));
+      topButton.innerHTML = user
+        ? `<span class="cloud-dot"></span><span>Connecté</span>`
+        : `<span class="cloud-dot"></span><span>Connexion Google</span>`;
+    }
     if (signInBtn) {
       signInBtn.disabled = !configured || Boolean(user);
       signInBtn.textContent = user ? 'Connecté avec Google' : 'Se connecter avec Google';

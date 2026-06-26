@@ -135,6 +135,11 @@
     }, 0);
   }
 
+  function evaluate(trip, settings) {
+    const analysis = analyzeTrip(trip, settings);
+    return { score: analysis.globalScore, items: analysis.suggestions, scores: analysis.scores };
+  }
+
   function render(containerScore, containerSuggestions, trip, settings) {
     const analysis = analyzeTrip(trip, settings);
     const scoreRows = Object.entries(analysis.scores).map(([name, value]) => `
@@ -156,5 +161,5 @@
     `).join('');
   }
 
-  window.TravelSuggestions = { analyzeTrip, optimizeOrder, compareRouteDistance, render };
+  window.TravelSuggestions = { analyzeTrip, evaluate, optimizeOrder, compareRouteDistance, render };
 })();

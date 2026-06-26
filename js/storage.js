@@ -58,19 +58,25 @@
         segmentNote: step.segmentNote || '',
         journal: step.journal || { notes: '', photoLinks: '', rating: '', realExpenses: '', weather: '', afterthoughts: '' }
       })) : [],
-      expenses: Array.isArray(trip.expenses) ? trip.expenses.map(expense => ({
-        id: expense.id || uid('expense'),
-        label: expense.label || 'Dépense',
-        category: expense.category || 'autres',
-        amount: Number(expense.amount) || 0,
-        status: expense.status || 'prévue',
-        date: expense.date || '',
-        stepId: expense.stepId || '',
-        note: expense.note || '',
-        paidBy: expense.paidBy || '',
-        splitWith: Array.isArray(expense.splitWith) ? expense.splitWith : [],
-        realAmount: Number(expense.realAmount) || 0
-      })) : [],
+      expenses: Array.isArray(trip.expenses) ? trip.expenses.map(expense => {
+        const planned = expense.plannedAmount ?? expense.amount ?? 0;
+        const actual = expense.actualAmount ?? expense.realAmount ?? 0;
+        const split = Array.isArray(expense.splitBetween) ? expense.splitBetween : (Array.isArray(expense.splitWith) ? expense.splitWith : []);
+        return {
+          id: expense.id || uid('expense'),
+          label: expense.label || 'Dépense',
+          category: expense.category || 'autres',
+          plannedAmount: Number(planned) || 0,
+          actualAmount: Number(actual) || 0,
+          amount: Number(planned) || 0,
+          status: expense.status || 'prévue',
+          date: expense.date || '',
+          stepId: expense.stepId || '',
+          note: expense.note || '',
+          paidBy: expense.paidBy || '',
+          splitBetween: split
+        };
+      }) : [],
       checklists: trip.checklists || createDefaultChecklists(),
       createdAt: trip.createdAt || now,
       updatedAt: trip.updatedAt || now
