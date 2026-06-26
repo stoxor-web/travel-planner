@@ -1,19 +1,57 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
-    function owner(userId) { return signedIn() && request.auth.uid == userId; }
-    function isAdmin() { return signedIn() && request.auth.token.email == 'lucas.scribe01@gmail.com'; }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSignedInUser(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == 'lucas.scribe01@gmail.com';
+    }
+
+    function hasValidBackupShape() {
+      return request.resource.data.keys().hasOnly([
+        'ownerUid',
+        'ownerEmail',
+        'schema',
+        'schemaVersion',
+        'clientUpdatedAt',
+        'updatedAt',
+        'state'
+      ])
+      && request.resource.data.ownerUid == request.auth.uid
+      && request.resource.data.schema == 'travelPlannerState'
+      && request.resource.data.schemaVersion == 1
+      && request.resource.data.state is map;
+    }
 
     match /travelPlannerUsers/{userId} {
-      allow read, create, update, delete: if owner(userId);
+      allow read: if isSignedInUser(userId);
+      allow create: if isSignedInUser(userId) && hasValidBackupShape();
+      allow update: if isSignedInUser(userId)
+        && resource.data.ownerUid == request.auth.uid
+        && hasValidBackupShape();
+      allow delete: if isSignedInUser(userId);
     }
 
     match /communityTrips/{tripId} {
       allow read: if true;
-      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
-      allow update: if signedIn();
-      allow delete: if signedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if isSignedIn()
+        && (
+          resource.data.ownerUid == request.auth.uid
+          || isAdmin()
+          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes', 'score', 'updatedAt'])
+        );
+      allow delete: if isSignedIn()
+        && (resource.data.ownerUid == request.auth.uid || isAdmin());
     }
 
     match /{document=**} {

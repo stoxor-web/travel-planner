@@ -3,24 +3,21 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="description" content="Travel Planner by Lucas S. — planification de voyages synchronisée avec Google Firebase." />
+  <meta name="description" content="Travel Planner by Lucas S. — planificateur de voyages moderne synchronisé avec Firebase." />
   <meta name="theme-color" content="#0b3b66" />
   <title>Travel Planner — Lucas S.</title>
-  <link rel="icon" href="assets/icons/favicon.ico?v=v413" sizes="any" />
-  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png?v=v413" />
-  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png?v=v413" />
-  <link rel="manifest" href="site.webmanifest?v=v413" />
-  <style>
-    [hidden]{display:none!important}.view{display:none}.view.is-visible{display:block}dialog:not([open]){display:none!important}.search-results:empty{display:none!important}
-    body{margin:0;background:#eef6fb;color:#101828;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-  </style>
-  <link rel="stylesheet" href="css/style.css?v=v413" />
+  <link rel="icon" href="assets/icons/favicon.ico?v=v415" sizes="any" />
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png?v=v415" />
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png?v=v415" />
+  <link rel="manifest" href="site.webmanifest?v=v415" />
+  <style>[hidden]{display:none!important}.view{display:none}.view.is-visible{display:block}dialog:not([open]){display:none!important}body{margin:0;background:#eef6fb;color:#101828;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}</style>
+  <link rel="stylesheet" href="css/style.css?v=v415" />
 </head>
 <body>
   <div id="app" class="app-shell">
     <aside class="sidebar">
       <a class="brand" href="#dashboard" data-view-link="dashboard">
-        <img src="assets/icons/icon-192.png" alt="" />
+        <img src="assets/icons/icon-192.png" alt="" class="brand__logo" />
         <span><strong>Travel Planner</strong><small>by Lucas S.</small></span>
       </a>
       <nav class="nav-list" aria-label="Navigation principale">
@@ -43,49 +40,32 @@
 
     <main class="main">
       <header class="topbar">
-        <div class="topbar__title">
-          <p class="eyebrow">Planification personnelle</p>
-          <h1 id="pageTitle">Tableau de bord</h1>
-        </div>
+        <div class="topbar__title"><p class="eyebrow">Planification personnelle</p><h1 id="pageTitle">Tableau de bord</h1></div>
         <div class="topbar__actions">
-          <div class="global-search">
-            <input id="globalSearchInput" class="input" type="search" placeholder="Rechercher…" aria-label="Recherche globale" autocomplete="off" />
-            <div id="globalSearchResults" class="search-results" hidden></div>
-          </div>
+          <div class="global-search"><input id="globalSearchInput" class="input" type="search" placeholder="Rechercher…" autocomplete="off" /><div id="globalSearchResults" class="search-results" hidden></div></div>
           <select id="tripSelector" class="input trip-select" aria-label="Voyage sélectionné"></select>
-          <button class="auth-pill" id="cloudAuthBtn" type="button" aria-live="polite"><span class="auth-avatar">G</span><span class="auth-copy"><strong>Connexion</strong><small>Google</small></span></button>
-          <button class="button icon-button" id="themeToggle" type="button" title="Changer le thème">🌙</button>
+          <button class="auth-pill" id="cloudAuthBtn" type="button"><span class="auth-avatar">↗</span><span class="auth-copy"><strong>Connexion</strong><small>Google ou e-mail</small></span></button>
+          <button class="button icon-button" id="themeToggle" type="button">🌙</button>
         </div>
       </header>
 
       <section id="statusBanner" class="status-banner" hidden></section>
 
       <section class="view is-visible" id="view-dashboard">
-        <div class="dashboard-hero" id="dashboardHero"></div>
+        <div id="dashboardHero" class="dashboard-hero"></div>
         <div class="section-heading"><div><p class="eyebrow">Mes voyages</p><h2>Centre de contrôle</h2></div><button class="button button--primary" id="createFirstTripBtn">Créer un voyage</button></div>
         <div id="tripTemplates" class="template-grid"></div>
         <div id="tripsGrid" class="trips-grid"></div>
       </section>
 
       <section class="view" id="view-today">
-        <div class="today-shell">
-          <div id="todayHero" class="panel today-hero"></div>
-          <div id="todayActions" class="panel today-side"></div>
-        </div>
+        <div class="today-shell"><div id="todayHero" class="panel today-hero"></div><div id="todayActions" class="panel today-side"></div></div>
         <div id="todayTimeline" class="panel"></div>
       </section>
 
       <section class="view" id="view-community">
-        <div class="panel hero-row">
-          <div><p class="eyebrow">Communauté</p><h2>Voyages partagés</h2><p>Publie ton itinéraire, découvre des idées, vote pour les meilleurs parcours et copie une inspiration dans ton espace.</p></div>
-          <div class="button-row"><button class="button button--primary" id="communityPublishBtn">Partager mon voyage</button><button class="button" id="communityRefreshBtn">Actualiser</button></div>
-        </div>
-        <div class="panel filter-bar">
-          <input id="communitySearchInput" class="input" type="search" placeholder="Rechercher pays, ville, catégorie…" />
-          <select id="communityCountryFilter" class="input"><option value="">Tous les pays</option></select>
-          <select id="communityCategoryFilter" class="input"><option value="">Toutes catégories</option><option value="roadtrip">Roadtrip</option><option value="citybreak">City break</option><option value="aventure">Aventure</option><option value="nature">Nature</option><option value="plage">Plage</option><option value="culture">Culture</option><option value="gastronomie">Gastronomie</option><option value="famille">Famille</option><option value="budget">Petit budget</option><option value="confort">Confort</option></select>
-          <select id="communitySortFilter" class="input"><option value="trend">Tendance</option><option value="recent">Plus récents</option><option value="popular">Plus votés</option></select>
-        </div>
+        <div class="panel hero-row"><div><p class="eyebrow">Communauté</p><h2>Voyages partagés</h2><p>Découvre les itinéraires publiés, vote pour les meilleurs parcours et copie une idée dans ton espace.</p></div><div class="button-row"><button class="button button--primary" id="communityPublishBtn">Partager mon voyage</button><button class="button" id="communityRefreshBtn">Actualiser</button></div></div>
+        <div class="panel filter-bar"><input id="communitySearchInput" class="input" type="search" placeholder="Rechercher pays, ville, catégorie…" /><select id="communityCountryFilter" class="input"><option value="">Tous les pays</option></select><select id="communityCategoryFilter" class="input"><option value="">Toutes catégories</option><option value="roadtrip">Roadtrip</option><option value="citybreak">City break</option><option value="aventure">Aventure</option><option value="nature">Nature</option><option value="plage">Plage</option><option value="culture">Culture</option><option value="gastronomie">Gastronomie</option><option value="famille">Famille</option><option value="budget">Petit budget</option><option value="confort">Confort</option></select><select id="communitySortFilter" class="input"><option value="trend">Tendance</option><option value="recent">Plus récents</option><option value="popular">Plus votés</option></select></div>
         <div id="communityAdminPanel" class="panel admin-panel" hidden></div>
         <div id="communityGrid" class="community-grid"></div>
       </section>
@@ -93,59 +73,69 @@
       <section class="view" id="view-trip">
         <form id="tripForm" class="panel form-grid">
           <div class="panel__header wide"><div><p class="eyebrow">Informations générales</p><h2>Créer ou modifier un voyage</h2></div><button class="button button--primary" type="submit">Enregistrer</button></div>
-          <label>Nom du voyage<input class="input" name="name" required /></label>
-          <label>Zone / pays<input class="input" name="area" /></label>
-          <label class="wide">Image de couverture<input class="input" name="coverImage" type="url" placeholder="https://…" /></label>
-          <label>Date de départ<input class="input" name="startDate" type="date" /></label>
-          <label>Date de retour<input class="input" name="endDate" type="date" /></label>
-          <label>Voyageurs<input class="input" name="travellers" type="number" min="1" value="1" /></label>
-          <label>Prénoms<input class="input" name="travellersNames" placeholder="Lucas, Emma" /></label>
-          <label>Budget maximum<input class="input" name="maxBudget" type="number" min="0" step="1" /></label>
-          <label>Devise<select class="input" name="currency"><option>€</option><option>$</option><option>£</option><option>CHF</option><option>¥</option></select></label>
-          <label>Statut<select class="input" name="status"><option>brouillon</option><option>prévu</option><option>en cours</option><option>terminé</option></select></label>
-          <label>Style<select class="input" name="style"><option>équilibré</option><option>économique</option><option>confort</option><option>aventure</option></select></label>
-          <label>Rythme<select class="input" name="pace"><option>normal</option><option>tranquille</option><option>intense</option></select></label>
-          <label class="wide">Centres d’intérêt<input class="input" name="interests" placeholder="nature, culture, gastronomie…" /></label>
-          <label class="wide">Description<textarea class="input" name="description" rows="4"></textarea></label>
+          <label>Nom du voyage<input class="input" name="name" required /></label><label>Zone / pays<input class="input" name="area" /></label><label class="wide">Image de couverture<input class="input" name="coverImage" type="url" placeholder="https://…" /></label><label>Date de départ<input class="input" name="startDate" type="date" /></label><label>Date de retour<input class="input" name="endDate" type="date" /></label><label>Nombre de voyageurs<input class="input" name="travellers" type="number" min="1" /></label><label>Prénoms voyageurs<input class="input" name="travellersNames" placeholder="Lucas, Emma" /></label><label>Budget maximum<input class="input" name="maxBudget" type="number" min="0" step="1" /></label><label>Devise<select class="input" name="currency"><option>€</option><option>$</option><option>£</option><option>CHF</option><option>¥</option></select></label><label>Statut<select class="input" name="status"><option>brouillon</option><option>prévu</option><option>en cours</option><option>terminé</option></select></label><label>Style<select class="input" name="style"><option>équilibré</option><option>économique</option><option>confort</option><option>aventure</option></select></label><label>Rythme<select class="input" name="pace"><option>normal</option><option>tranquille</option><option>intense</option></select></label><label class="wide">Centres d’intérêt<input class="input" name="interests" placeholder="nature, culture, gastronomie…" /></label><label class="wide">Description<textarea class="input" name="description" rows="4"></textarea></label>
         </form>
-        <div class="panel"><div class="panel__header"><div><p class="eyebrow">Étapes</p><h2>Départ, arrêts et activités</h2></div><button class="button button--primary" id="addStepBtn">+ Ajouter une étape</button></div><div id="stepsList" class="steps-list"></div></div>
+        <div class="panel mt"><div class="panel__header"><div><p class="eyebrow">Étapes</p><h2>Départ, arrêts et destination</h2></div><button class="button button--primary" id="addStepBtn">+ Ajouter une étape</button></div><div id="stepsList" class="steps-list"></div></div>
       </section>
 
-      <section class="view" id="view-map">
-        <div class="map-layout"><div class="panel map-side"><p class="eyebrow">Trajets</p><h2>Point par point</h2><div id="mapSegments"></div></div><div class="panel map-panel"><div class="map-toolbar"><button class="button" id="fitMapBtn">Recentrer</button><a class="button" id="openOsmBtn" target="_blank" rel="noreferrer">Ouvrir OSM</a></div><div id="mapCanvas" class="map-canvas"></div></div></div>
-      </section>
-
+      <section class="view" id="view-map"><div class="map-layout"><div class="panel map-side"><p class="eyebrow">Trajets</p><h2>Point par point</h2><div id="mapSegments" class="stack"></div></div><div class="panel map-panel"><div class="map-toolbar"><button class="button" id="fitMapBtn">Recentrer</button><a class="button" id="openOsmBtn" href="https://www.openstreetmap.org" target="_blank" rel="noreferrer">Ouvrir OSM</a></div><div id="mapCanvas" class="map-canvas"></div></div></div></section>
       <section class="view" id="view-itinerary"><div class="panel"><div class="panel__header"><div><p class="eyebrow">Planning</p><h2>Timeline jour par jour</h2></div><button class="button" id="refreshItineraryBtn">Recalculer</button></div><div id="itineraryTimeline" class="timeline"></div></div></section>
-
-      <section class="view" id="view-budget"><div class="budget-layout"><div class="panel"><div class="panel__header"><div><p class="eyebrow">Budget</p><h2>Dépenses prévues et réelles</h2></div><button class="button button--primary" id="addExpenseBtn">+ Dépense</button></div><div id="budgetSummary" class="stats-grid"></div><div id="expensesList" class="table-list"></div></div><div class="panel"><p class="eyebrow">TriCount</p><h2>Qui doit quoi ?</h2><div id="settlementsBox"></div></div></div></section>
-
+      <section class="view" id="view-budget"><div class="budget-layout"><div class="panel"><div class="panel__header"><div><p class="eyebrow">Budget</p><h2>Dépenses prévues et réelles</h2></div><button class="button button--primary" id="addExpenseBtn">+ Dépense</button></div><div id="budgetSummary" class="stats-grid"></div><div id="expensesList" class="table-list"></div></div><div class="panel"><p class="eyebrow">TriCount</p><h2>Qui doit quoi ?</h2><div id="settlementsBox" class="stack"></div></div></div></section>
       <section class="view" id="view-suggestions"><div class="panel"><div class="panel__header"><div><p class="eyebrow">Assistant</p><h2>Suggestions intelligentes</h2></div><button class="button" id="autoFixBtn">Corriger automatiquement</button></div><div id="suggestionsScore" class="stats-grid"></div><div id="suggestionsList" class="suggestion-board"></div></div></section>
-
       <section class="view" id="view-preparation"><div class="panel"><div class="panel__header"><div><p class="eyebrow">Avant départ</p><h2>Checklists</h2></div><button class="button button--primary" id="addChecklistBlockBtn">+ Bloc</button></div><div id="checklists" class="checklist-grid"></div></div></section>
-
       <section class="view" id="view-journal"><div class="panel"><p class="eyebrow">Souvenirs</p><h2>Carnet de voyage</h2><div id="journalList" class="journal-grid"></div></div></section>
+      <section class="view" id="view-settings"><div class="settings-grid"><div class="panel"><p class="eyebrow">Compte</p><h2>Compte Firebase</h2><div id="accountPanel" class="account-panel">
+            <div id="cloudStatus" class="status-banner">Connexion requise.</div>
+            <div id="cloudProfile" class="account-card" hidden>
+              <span id="cloudAvatar" class="account-avatar">U</span>
+              <div>
+                <strong id="cloudUserName">Compte utilisateur</strong>
+                <span id="cloudUserEmail"></span>
+                <small id="cloudProvider">Google ou e-mail</small>
+              </div>
+            </div>
+            <div class="auth-choice-grid">
+              <section class="auth-method-card">
+                <p class="eyebrow">Google</p>
+                <h3>Connexion rapide</h3>
+                <p>Utilise ton compte Google pour accéder à tes voyages synchronisés.</p>
+                <button class="button button--primary full" id="cloudSignInBtn" type="button"><span class="google-dot">G</span> Continuer avec Google</button>
+              </section>
+              <section class="auth-method-card">
+                <p class="eyebrow">E-mail</p>
+                <h3>Adresse e-mail / mot de passe</h3>
+                <form id="emailLoginForm" class="email-login-form">
+                  <input id="emailAuthEmail" class="input" type="email" autocomplete="email" placeholder="adresse@email.com" />
+                  <input id="emailAuthPassword" class="input" type="password" autocomplete="current-password" placeholder="Mot de passe" />
+                  <div class="button-row">
+                    <button class="button button--primary" type="submit">Se connecter</button>
+                    <button class="button" id="cloudEmailRegisterBtn" type="button">Créer un compte</button>
+                    <button class="button button--ghost" id="cloudEmailResetBtn" type="button">Mot de passe oublié</button>
+                  </div>
+                </form>
+              </section>
+            </div>
+            <div class="account-actions">
+              <button class="button" id="cloudSignOutBtn" type="button">Déconnexion</button>
+              <span id="cloudSyncMeta" class="muted">Sauvegarde Firebase automatique après connexion.</span>
+            </div>
+            <div class="danger-zone">
+              <div><strong>Réinitialiser le compte</strong><span>Supprime les voyages enregistrés pour ce compte.</span></div>
+              <button class="button button--danger" id="deleteCloudDataBtn" type="button">Supprimer</button>
+            </div>
+          </div></div><form id="settingsForm" class="panel form-grid"><div class="wide"><p class="eyebrow">Préférences</p><h2>Estimations & sauvegarde</h2></div><label>Sauvegarde auto (minutes)<input class="input" name="autosaveMinutes" type="number" min="1" /></label><label>Voiture km/h<input class="input" name="carSpeed" type="number" min="1" /></label><label>Train km/h<input class="input" name="trainSpeed" type="number" min="1" /></label><label>Marche km/h<input class="input" name="walkSpeed" type="number" min="1" /></label><button class="button button--primary wide" type="submit">Enregistrer</button></form></div></section>
 
-      <section class="view" id="view-settings"><div class="settings-grid"><div class="panel"><p class="eyebrow">Compte</p><h2>Compte Google</h2><div id="accountPanel"></div></div><form id="settingsForm" class="panel form-grid"><div class="wide"><p class="eyebrow">Préférences</p><h2>Estimations & sauvegarde</h2></div><label>Sauvegarde auto (minutes)<input class="input" name="autosaveMinutes" type="number" min="1" value="3" /></label><label>Voiture km/h<input class="input" name="carSpeed" type="number" min="1" value="80" /></label><label>Train km/h<input class="input" name="trainSpeed" type="number" min="1" value="110" /></label><label>Marche km/h<input class="input" name="walkSpeed" type="number" min="1" value="5" /></label><button class="button button--primary wide" type="submit">Enregistrer</button></form></div></section>
-
-      <footer class="site-footer"><div><strong>Travel Planner</strong><span>Créé par Lucas S.</span></div><div><span>Données synchronisées avec Google Firebase</span><span>Cartographie © OpenStreetMap</span><span>Version V4.13</span></div></footer>
+      <footer class="site-footer"><div><strong>Travel Planner</strong><span>Créé par Lucas S.</span></div><div><span>Données privées synchronisées avec Firebase</span><span>Cartographie © OpenStreetMap</span><span>Version V4.15</span></div></footer>
     </main>
   </div>
 
-  <button class="fab" id="fabBtn" type="button">+</button>
-  <div class="fab-menu" id="fabMenu" hidden><button data-fab="trip">+ Voyage</button><button data-fab="step">+ Étape</button><button data-fab="expense">+ Dépense</button><button data-fab="today">Aujourd’hui</button></div>
+  <button class="fab" id="fabBtn" type="button">+</button><div class="fab-menu" id="fabMenu" hidden><button data-fab="trip">+ Voyage</button><button data-fab="step">+ Étape</button><button data-fab="expense">+ Dépense</button><button data-fab="today">Aujourd’hui</button></div>
 
-  <dialog id="stepDialog" class="modal"><form id="stepForm" method="dialog" class="modal-card form-grid"><button class="modal-close" type="button" data-close-dialog="stepDialog">×</button><div class="wide"><p class="eyebrow">Étape</p><h2 id="stepDialogTitle">Ajouter une étape</h2></div><input type="hidden" name="id" />
-    <label class="wide">Recherche de lieu<input class="input" name="search" placeholder="Hôtel Regina, Paris, France" /></label><button class="button" type="button" id="geocodeBtn">Rechercher</button><div id="geocodeResults" class="wide geocode-results"></div>
-    <label>Nom<input class="input" name="name" required /></label><label>Type<select class="input" name="type"><option>ville</option><option>hôtel</option><option>activité</option><option>restaurant</option><option>gare</option><option>aéroport</option><option>point de vue</option><option>autre</option></select></label><label class="wide">Adresse<input class="input" name="address" /></label><label>Latitude<input class="input" name="lat" type="number" step="any" /></label><label>Longitude<input class="input" name="lng" type="number" step="any" /></label><label>Date d’arrivée<input class="input" name="arrivalDate" type="date" /></label><label>Heure d’arrivée<input class="input" name="arrivalTime" type="time" /></label><label>Date de départ<input class="input" name="departureDate" type="date" /></label><label>Heure de départ<input class="input" name="departureTime" type="time" /></label><label>Coût estimé<input class="input" name="cost" type="number" min="0" step="0.01" /></label><label>Priorité<select class="input" name="priority"><option>indispensable</option><option>optionnel</option><option>bonus</option></select></label><label class="wide">Notes<textarea class="input" name="notes" rows="3"></textarea></label><div class="wide form-actions"><button class="button" type="button" data-close-dialog="stepDialog">Annuler</button><button class="button button--primary" type="submit">Enregistrer</button></div></form></dialog>
+  <dialog id="stepDialog" class="modal"><form id="stepForm" method="dialog" class="modal-card form-grid"><button class="modal-close" type="button" data-close-dialog="stepDialog">×</button><div class="wide"><p class="eyebrow">Étape</p><h2 id="stepDialogTitle">Ajouter une étape</h2></div><input type="hidden" name="id" /><label class="wide">Rechercher un lieu<input class="input" name="search" placeholder="Hôtel Regina, Paris, France" /></label><button class="button" type="button" id="geocodeBtn">Rechercher</button><div id="geocodeResults" class="wide geocode-results"></div><label>Nom<input class="input" name="name" required /></label><label>Type<select class="input" name="type"></select></label><label class="wide">Adresse<input class="input" name="address" /></label><label>Latitude<input class="input" name="lat" type="number" step="any" /></label><label>Longitude<input class="input" name="lng" type="number" step="any" /></label><label>Date d’arrivée<input class="input" name="arrivalDate" type="date" /></label><label>Heure d’arrivée<input class="input" name="arrivalTime" type="time" /></label><label>Date de départ<input class="input" name="departureDate" type="date" /></label><label>Heure de départ<input class="input" name="departureTime" type="time" /></label><label>Durée prévue<input class="input" name="duration" placeholder="2 nuits, matinée…" /></label><label>Coût estimé<input class="input" name="cost" type="number" min="0" step="0.01" /></label><label>Priorité<select class="input" name="priority"><option>indispensable</option><option>optionnel</option><option>bonus</option></select></label><label>Couleur<input class="input" name="color" type="color" value="#2563eb" /></label><label class="wide">Liens utiles<input class="input" name="links" placeholder="https://…, https://…" /></label><label class="wide">Notes<textarea class="input" name="notes" rows="3"></textarea></label><div class="wide logic-note">Indique quand tu arrives sur place, puis quand tu repars. Le départ ne peut pas être avant l’arrivée.</div><div class="wide form-actions"><button class="button" type="button" data-close-dialog="stepDialog">Annuler</button><button class="button button--primary" type="submit">Enregistrer</button></div></form></dialog>
+  <dialog id="expenseDialog" class="modal"><form id="expenseForm" method="dialog" class="modal-card form-grid"><button class="modal-close" type="button" data-close-dialog="expenseDialog">×</button><div class="wide"><p class="eyebrow">Budget</p><h2 id="expenseDialogTitle">Ajouter une dépense</h2></div><input type="hidden" name="id" /><label>Libellé<input class="input" name="label" required /></label><label>Catégorie<select class="input" name="category"></select></label><label>Montant prévu<input class="input" name="planned" type="number" min="0" step="0.01" /></label><label>Montant réel<input class="input" name="actual" type="number" min="0" step="0.01" /></label><label>Statut<select class="input" name="status"><option>prévue</option><option>payée</option><option>à rembourser</option><option>partagée</option></select></label><label>Payé par<input class="input" name="paidBy" /></label><label class="wide">Partagé avec<input class="input" name="sharedWith" placeholder="Lucas, Emma" /></label><label>Date<input class="input" name="date" type="date" /></label><label>Liée à une étape<select class="input" name="stepId"></select></label><label class="wide">Note<textarea class="input" name="note" rows="3"></textarea></label><div class="wide form-actions"><button class="button" type="button" data-close-dialog="expenseDialog">Annuler</button><button class="button button--primary" type="submit">Enregistrer</button></div></form></dialog>
+  <dialog id="publishDialog" class="modal"><form id="publishForm" method="dialog" class="modal-card form-grid"><button class="modal-close" type="button" data-close-dialog="publishDialog">×</button><div class="wide"><p class="eyebrow">Communauté</p><h2>Partager ce voyage</h2><p>Une copie publique de consultation sera créée.</p></div><label>Titre public<input class="input" name="title" required /></label><label>Pays / zone<input class="input" name="country" /></label><label>Catégorie<select class="input" name="category"><option value="roadtrip">Roadtrip</option><option value="citybreak">City break</option><option value="aventure">Aventure</option><option value="nature">Nature</option><option value="plage">Plage</option><option value="culture">Culture</option><option value="gastronomie">Gastronomie</option><option value="famille">Famille</option><option value="budget">Petit budget</option><option value="confort">Confort</option></select></label><label class="wide">Image<input class="input" name="coverImage" type="url" /></label><label class="wide">Description<textarea class="input" name="description" rows="4"></textarea></label><label class="check"><input type="checkbox" name="hideBudget" /> Masquer le budget</label><label class="check"><input type="checkbox" name="allowCopy" checked /> Autoriser la copie</label><div class="wide form-actions"><button class="button" type="button" data-close-dialog="publishDialog">Annuler</button><button class="button button--primary" type="submit">Publier</button></div></form></dialog>
+  <dialog id="confirmDialog" class="modal small"><form method="dialog" class="modal-card"><h2 id="confirmTitle">Confirmation</h2><p id="confirmMessage"></p><div class="form-actions"><button class="button" value="cancel">Annuler</button><button class="button button--primary" value="default">Confirmer</button></div></form></dialog>
 
-  <dialog id="expenseDialog" class="modal"><form id="expenseForm" method="dialog" class="modal-card form-grid"><button class="modal-close" type="button" data-close-dialog="expenseDialog">×</button><div class="wide"><p class="eyebrow">Budget</p><h2>Ajouter une dépense</h2></div><input type="hidden" name="id" /><label>Libellé<input class="input" name="label" required /></label><label>Catégorie<select class="input" name="category"><option>transport</option><option>logement</option><option>nourriture</option><option>activités</option><option>courses</option><option>parking</option><option>assurances</option><option>souvenirs</option><option>imprévus</option><option>autres</option></select></label><label>Montant prévu<input class="input" name="planned" type="number" min="0" step="0.01" /></label><label>Montant réel<input class="input" name="actual" type="number" min="0" step="0.01" /></label><label>Payé par<input class="input" name="paidBy" /></label><label>Partagé avec<input class="input" name="sharedWith" placeholder="Lucas, Emma" /></label><label>Date<input class="input" name="date" type="date" /></label><label>Statut<select class="input" name="status"><option>prévue</option><option>payée</option><option>à rembourser</option><option>partagée</option></select></label><label class="wide">Note<textarea class="input" name="note" rows="3"></textarea></label><div class="wide form-actions"><button class="button" type="button" data-close-dialog="expenseDialog">Annuler</button><button class="button button--primary" type="submit">Enregistrer</button></div></form></dialog>
-
-  <dialog id="publishDialog" class="modal"><form id="publishForm" method="dialog" class="modal-card form-grid"><button class="modal-close" type="button" data-close-dialog="publishDialog">×</button><div class="wide"><p class="eyebrow">Communauté</p><h2>Partager ce voyage</h2><p>Une copie publique de consultation sera créée. Les données sensibles peuvent être masquées.</p></div><label>Titre public<input class="input" name="title" required /></label><label>Pays / zone<input class="input" name="country" /></label><label>Catégorie<select class="input" name="category"><option value="roadtrip">Roadtrip</option><option value="citybreak">City break</option><option value="aventure">Aventure</option><option value="nature">Nature</option><option value="plage">Plage</option><option value="culture">Culture</option><option value="gastronomie">Gastronomie</option><option value="famille">Famille</option><option value="budget">Petit budget</option><option value="confort">Confort</option></select></label><label class="wide">Image<input class="input" name="coverImage" type="url" /></label><label class="wide">Description<textarea class="input" name="description" rows="4"></textarea></label><label class="check"><input type="checkbox" name="hideBudget" /> Masquer le budget</label><label class="check"><input type="checkbox" name="allowCopy" checked /> Autoriser la copie</label><div class="wide form-actions"><button class="button" type="button" data-close-dialog="publishDialog">Annuler</button><button class="button button--primary" type="submit">Publier</button></div></form></dialog>
-
-  <script src="js/firebase-config.js?v=v413"></script>
-  <script src="js/utils.js?v=v413"></script>
-  <script src="js/storage.js?v=v413"></script>
-  <script src="js/firebase-sync.js?v=v413"></script>
-  <script src="js/app.js?v=v413"></script>
+  <script src="js/firebase-config.js?v=v415"></script><script src="js/utils.js?v=v415"></script><script src="js/storage.js?v=v415"></script><script src="js/firebase-sync.js?v=v415"></script><script src="js/map.js?v=v415"></script><script src="js/app.js?v=v415"></script>
 </body>
 </html>
