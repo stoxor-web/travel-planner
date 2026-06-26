@@ -1,91 +1,384 @@
 <!doctype html>
 <html lang="fr">
 <head>
+  <!-- Meta tags essentiels -->
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="description" content="Travel Planner by Lucas S. — planificateur de voyages moderne synchronisé avec Firebase." />
   <meta name="theme-color" content="#0b3b66" />
+  
+  <!-- Title -->
   <title>Travel Planner — Lucas S.</title>
-  <link rel="icon" href="assets/icons/favicon.ico?v=v419" sizes="any" />
-  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png?v=v419" />
-  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png?v=v419" />
-  <link rel="manifest" href="site.webmanifest?v=v419" />
-  <style>[hidden]{display:none!important}.view{display:none}.view.is-visible{display:block}dialog:not([open]){display:none!important}body{margin:0;background:#eef6fb;color:#101828;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}</style>
-  <link rel="stylesheet" href="css/style.css?v=v419" />
+  
+  <!-- Favicons et manifeste -->
+  <link rel="icon" href="assets/icons/favicon.ico?v=v420" sizes="any" />
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png?v=v420" />
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png?v=v420" />
+  <link rel="manifest" href="site.webmanifest?v=v420" />
+  
+  <!-- Inline critical CSS -->
+  <style>
+    /* Reset et préférences */
+    [hidden] { display: none !important; }
+    .view { display: none; }
+    .view.is-visible { display: block; }
+    dialog:not([open]) { display: none !important; }
+    
+    body {
+      margin: 0;
+      background: #eef6fb;
+      color: #101828;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+  </style>
+  
+  <!-- Stylesheet principal -->
+  <link rel="stylesheet" href="css/style.css?v=v420" />
 </head>
+
 <body>
+  <!-- Main application shell -->
   <div id="app" class="app-shell">
+    
+    <!-- Sidebar Navigation -->
     <aside class="sidebar">
       <a class="brand" href="#dashboard" data-view-link="dashboard">
-        <img src="assets/icons/icon-192.png" alt="" class="brand__logo" />
-        <span><strong>Travel Planner</strong><small>by Lucas S.</small></span>
+        <img src="assets/icons/icon-192.png" alt="Travel Planner Logo" class="brand__logo" />
+        <span>
+          <strong>Travel Planner</strong>
+          <small>by Lucas S.</small>
+        </span>
       </a>
+      
       <nav class="nav-list" aria-label="Navigation principale">
-        <button class="nav-item is-active" data-view-link="dashboard">🏠 <span>Accueil</span></button>
-        <button class="nav-item" data-view-link="today">📍 <span>Aujourd’hui</span></button>
-        <button class="nav-item" data-view-link="community">🌍 <span>Communauté</span></button>
-        <button class="nav-item" data-view-link="trip">🧭 <span>Voyage</span></button>
-        <button class="nav-item" data-view-link="map">🗺️ <span>Carte</span></button>
-        <button class="nav-item" data-view-link="itinerary">🗓️ <span>Planning</span></button>
-        <button class="nav-item" data-view-link="budget">💶 <span>Budget</span></button>
-        <button class="nav-item" data-view-link="suggestions">💡 <span>Suggestions</span></button>
-        <button class="nav-item" data-view-link="preparation">✅ <span>Préparation</span></button>
-        <button class="nav-item" data-view-link="journal">📔 <span>Carnet</span></button>
-        <button class="nav-item" data-view-link="settings">⚙️ <span>Paramètres</span></button>
+        <button class="nav-item is-active" data-view-link="dashboard" aria-label="Tableau de bord">
+          🏠 <span>Accueil</span>
+        </button>
+        <button class="nav-item" data-view-link="today" aria-label="Événements aujourd'hui">
+          📍 <span>Aujourd'hui</span>
+        </button>
+        <button class="nav-item" data-view-link="community" aria-label="Voyages communautaires">
+          🌍 <span>Communauté</span>
+        </button>
+        <button class="nav-item" data-view-link="trip" aria-label="Gérer vos voyages">
+          🧭 <span>Voyage</span>
+        </button>
+        <button class="nav-item" data-view-link="map" aria-label="Carte du voyage">
+          🗺️ <span>Carte</span>
+        </button>
+        <button class="nav-item" data-view-link="itinerary" aria-label="Calendrier et planning">
+          🗓️ <span>Planning</span>
+        </button>
+        <button class="nav-item" data-view-link="budget" aria-label="Gestion du budget">
+          💶 <span>Budget</span>
+        </button>
+        <button class="nav-item" data-view-link="suggestions" aria-label="Suggestions intelligentes">
+          💡 <span>Suggestions</span>
+        </button>
+        <button class="nav-item" data-view-link="preparation" aria-label="Checklists">
+          ✅ <span>Préparation</span>
+        </button>
+        <button class="nav-item" data-view-link="journal" aria-label="Carnet de voyage">
+          📔 <span>Carnet</span>
+        </button>
+        <button class="nav-item" data-view-link="settings" aria-label="Paramètres">
+          ⚙️ <span>Paramètres</span>
+        </button>
       </nav>
+      
       <div class="sidebar__footer">
         <button class="button button--primary full" id="newTripBtn">+ Nouveau voyage</button>
       </div>
     </aside>
 
+    <!-- Main content area -->
     <main class="main">
+      <!-- Top navigation bar -->
       <header class="topbar">
-        <div class="topbar__title"><p class="eyebrow">Planification personnelle</p><h1 id="pageTitle">Tableau de bord</h1></div>
+        <div class="topbar__title">
+          <p class="eyebrow">Planification personnelle</p>
+          <h1 id="pageTitle">Tableau de bord</h1>
+        </div>
+        
         <div class="topbar__actions">
-          <div class="global-search"><input id="globalSearchInput" class="input" type="search" placeholder="Rechercher…" autocomplete="off" /><div id="globalSearchResults" class="search-results" hidden></div></div>
-          <select id="tripSelector" class="input trip-select" aria-label="Voyage sélectionné"></select>
-          <button class="auth-pill" id="cloudAuthBtn" type="button"><span class="auth-avatar">↗</span><span class="auth-copy"><strong>Connexion</strong><small>Google, e-mail ou invité</small></span></button>
-          <button class="button icon-button" id="themeToggle" type="button">🌙</button>
+          <!-- Global search -->
+          <div class="global-search">
+            <input 
+              id="globalSearchInput" 
+              class="input" 
+              type="search" 
+              placeholder="Rechercher…" 
+              autocomplete="off"
+              aria-label="Recherche globale"
+            />
+            <div id="globalSearchResults" class="search-results" hidden></div>
+          </div>
+          
+          <!-- Trip selector -->
+          <select 
+            id="tripSelector" 
+            class="input trip-select" 
+            aria-label="Voyage sélectionné"
+          ></select>
+          
+          <!-- Authentication button -->
+          <button class="auth-pill" id="cloudAuthBtn" type="button">
+            <span class="auth-avatar">↗</span>
+            <span class="auth-copy">
+              <strong>Connexion</strong>
+              <small>Google, e-mail ou invité</small>
+            </span>
+          </button>
+          
+          <!-- Theme toggle -->
+          <button class="button icon-button" id="themeToggle" type="button" aria-label="Basculer le thème">
+            🌙
+          </button>
         </div>
       </header>
 
+      <!-- Status banner -->
       <section id="statusBanner" class="status-banner" hidden></section>
 
+      <!-- Views Container -->
+      
+      <!-- Dashboard View -->
       <section class="view is-visible" id="view-dashboard">
         <div id="dashboardHero" class="dashboard-hero"></div>
-        <div class="section-heading"><div><p class="eyebrow">Mes voyages</p><h2>Centre de contrôle</h2></div><button class="button button--primary" id="createFirstTripBtn">Créer un voyage</button></div>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Mes voyages</p>
+            <h2>Centre de contrôle</h2>
+          </div>
+          <button class="button button--primary" id="createFirstTripBtn">Créer un voyage</button>
+        </div>
         <div id="tripTemplates" class="template-grid"></div>
         <div id="tripsGrid" class="trips-grid"></div>
       </section>
 
+      <!-- Today View -->
       <section class="view" id="view-today">
-        <div class="today-shell"><div id="todayHero" class="panel today-hero"></div><div id="todayActions" class="panel today-side"></div></div>
+        <div class="today-shell">
+          <div id="todayHero" class="panel today-hero"></div>
+          <div id="todayActions" class="panel today-side"></div>
+        </div>
         <div id="todayTimeline" class="panel"></div>
       </section>
 
+      <!-- Community View -->
       <section class="view" id="view-community">
-        <div class="panel hero-row"><div><p class="eyebrow">Communauté</p><h2>Voyages partagés</h2><p>Découvre les itinéraires publiés, vote pour les meilleurs parcours et copie une idée dans ton espace.</p></div><div class="button-row"><button class="button button--primary" id="communityPublishBtn">Partager mon voyage</button><button class="button" id="communityRefreshBtn">Actualiser</button></div></div>
-        <div class="panel filter-bar"><input id="communitySearchInput" class="input" type="search" placeholder="Rechercher pays, ville, catégorie…" /><select id="communityCountryFilter" class="input"><option value="">Tous les pays</option></select><select id="communityCategoryFilter" class="input"><option value="">Toutes catégories</option><option value="roadtrip">Roadtrip</option><option value="citybreak">City break</option><option value="aventure">Aventure</option><option value="nature">Nature</option><option value="plage">Plage</option><option value="culture">Culture</option><option value="gastronomie">Gastronomie</option><option value="famille">Famille</option><option value="budget">Petit budget</option><option value="confort">Confort</option></select><select id="communitySortFilter" class="input"><option value="trend">Tendance</option><option value="recent">Plus récents</option><option value="popular">Plus votés</option></select></div>
-        <div id="communityAdminPanel" class="panel admin-panel" hidden></div>
+        <div class="panel hero-row">
+          <div>
+            <p class="eyebrow">Communauté</p>
+            <h2>Voyages partagés</h2>
+            <p>Découvre les itinéraires publiés, vote pour les meilleurs parcours et copie une idée dans ton espace.</p>
+          </div>
+          <div class="button-row">
+            <button class="button button--primary" id="communityPublishBtn">Partager mon voyage</button>
+            <button class="button" id="communityRefreshBtn">Actualiser</button>
+          </div>
+        </div>
+        <div class="panel filter-bar">
+          <select id="communityCountryFilter" class="input" aria-label="Filtrer par pays"></select>
+          <select id="communityCategoryFilter" class="input" aria-label="Filtrer par catégorie"></select>
+          <select id="communitySortFilter" class="input" aria-label="Trier les résultats"></select>
+        </div>
         <div id="communityGrid" class="community-grid"></div>
       </section>
 
+      <!-- Trip View -->
       <section class="view" id="view-trip">
         <form id="tripForm" class="panel form-grid">
-          <div class="panel__header wide"><div><p class="eyebrow">Informations générales</p><h2>Créer ou modifier un voyage</h2></div><button class="button button--primary" type="submit">Enregistrer</button></div>
-          <label>Nom du voyage<input class="input" name="name" required /></label><label>Zone / pays<input class="input" name="area" /></label><label class="wide">Image de couverture<input class="input" name="coverImage" type="url" placeholder="https://…" /></label><label>Date de départ<input class="input" name="startDate" type="date" /></label><label>Date de retour<input class="input" name="endDate" type="date" /></label><label>Nombre de voyageurs<input class="input" name="travellers" type="number" min="1" /></label><label>Prénoms voyageurs<input class="input" name="travellersNames" placeholder="Lucas, Emma" /></label><label>Budget maximum<input class="input" name="maxBudget" type="number" min="0" step="1" /></label><label>Devise<select class="input" name="currency"><option>€</option><option>$</option><option>£</option><option>CHF</option><option>¥</option></select></label><label>Statut<select class="input" name="status"><option>brouillon</option><option>prévu</option><option>en cours</option><option>terminé</option></select></label><label>Style<select class="input" name="style"><option>équilibré</option><option>économique</option><option>confort</option><option>aventure</option></select></label><label>Rythme<select class="input" name="pace"><option>normal</option><option>tranquille</option><option>intense</option></select></label><label class="wide">Centres d’intérêt<input class="input" name="interests" placeholder="nature, culture, gastronomie…" /></label><label class="wide">Description<textarea class="input" name="description" rows="4"></textarea></label>
+          <div class="wide">
+            <p class="eyebrow">Informations générales</p>
+            <h2>Créer ou modifier un voyage</h2>
+          </div>
+          
+          <label>
+            Nom du voyage
+            <input class="input" name="name" type="text" required />
+          </label>
+          <label>
+            Zone / pays
+            <input class="input" name="country" type="text" />
+          </label>
+          <label>
+            Image de couverture
+            <input class="input" name="coverImage" type="url" />
+          </label>
+          <label>
+            Date de départ
+            <input class="input" name="startDate" type="date" />
+          </label>
+          <label>
+            Date de retour
+            <input class="input" name="endDate" type="date" />
+          </label>
+          <label>
+            Nombre de voyageurs
+            <input class="input" name="travelers" type="number" min="1" />
+          </label>
+          <label class="wide">
+            Prénoms voyageurs
+            <input class="input" name="travelersNames" type="text" placeholder="Lucas, Emma…" />
+          </label>
+          <label>
+            Budget maximum
+            <input class="input" name="budget" type="number" min="0" step="0.01" />
+          </label>
+          <label>
+            Devise
+            <select class="input" name="currency">
+              <option value="EUR">€ EUR</option>
+              <option value="USD">$ USD</option>
+              <option value="GBP">£ GBP</option>
+              <option value="CHF">CHF</option>
+              <option value="JPY">¥ JPY</option>
+            </select>
+          </label>
+          <label>
+            Statut
+            <select class="input" name="status">
+              <option value="draft">brouillon</option>
+              <option value="planned">prévu</option>
+              <option value="ongoing">en cours</option>
+              <option value="completed">terminé</option>
+            </select>
+          </label>
+          <label>
+            Style
+            <select class="input" name="style">
+              <option value="balanced">équilibré</option>
+              <option value="budget">économique</option>
+              <option value="comfort">confort</option>
+              <option value="adventure">aventure</option>
+            </select>
+          </label>
+          <label>
+            Rythme
+            <select class="input" name="pace">
+              <option value="normal">normal</option>
+              <option value="slow">tranquille</option>
+              <option value="fast">intense</option>
+            </select>
+          </label>
+          <label class="wide">
+            Centres d'intérêt
+            <input class="input" name="interests" placeholder="Randonnée, gastronomie…" />
+          </label>
+          <label class="wide">
+            Description
+            <textarea class="input" name="description" rows="4"></textarea>
+          </label>
+          
+          <div class="wide form-actions">
+            <button class="button" type="button" id="cancelTripBtn">Annuler</button>
+            <button class="button button--primary" type="submit">Enregistrer</button>
+          </div>
         </form>
-        <div class="panel mt"><div class="panel__header"><div><p class="eyebrow">Étapes</p><h2>Départ, arrêts et destination</h2></div><button class="button button--primary" id="addStepBtn">+ Ajouter une étape</button></div><div id="stepsList" class="steps-list"></div></div>
       </section>
 
-      <section class="view" id="view-map"><div class="map-layout"><div class="panel map-side"><p class="eyebrow">Trajets</p><h2>Point par point</h2><div id="mapSegments" class="stack"></div></div><div class="panel map-panel"><div class="map-toolbar"><button class="button" id="fitMapBtn">Recentrer</button><a class="button" id="openOsmBtn" href="https://www.openstreetmap.org" target="_blank" rel="noreferrer">Ouvrir OSM</a></div><div id="mapCanvas" class="map-canvas"></div></div></div></section>
-      <section class="view" id="view-itinerary"><div class="panel"><div class="panel__header"><div><p class="eyebrow">Planning</p><h2>Timeline jour par jour</h2></div><button class="button" id="refreshItineraryBtn">Recalculer</button></div><div id="itineraryTimeline" class="timeline"></div></div></section>
-      <section class="view" id="view-budget"><div class="budget-layout"><div class="panel"><div class="panel__header"><div><p class="eyebrow">Budget</p><h2>Dépenses prévues et réelles</h2></div><button class="button button--primary" id="addExpenseBtn">+ Dépense</button></div><div id="budgetSummary" class="stats-grid"></div><div id="expensesList" class="table-list"></div></div><div class="panel"><p class="eyebrow">TriCount</p><h2>Qui doit quoi ?</h2><div id="settlementsBox" class="stack"></div></div></div></section>
-      <section class="view" id="view-suggestions"><div class="panel"><div class="panel__header"><div><p class="eyebrow">Assistant</p><h2>Suggestions intelligentes</h2></div><button class="button" id="autoFixBtn">Corriger automatiquement</button></div><div id="suggestionsScore" class="stats-grid"></div><div id="suggestionsList" class="suggestion-board"></div></div></section>
-      <section class="view" id="view-preparation"><div class="panel"><div class="panel__header"><div><p class="eyebrow">Avant départ</p><h2>Checklists</h2></div><button class="button button--primary" id="addChecklistBlockBtn">+ Bloc</button></div><div id="checklists" class="checklist-grid"></div></div></section>
-      <section class="view" id="view-journal"><div class="panel"><p class="eyebrow">Souvenirs</p><h2>Carnet de voyage</h2><div id="journalList" class="journal-grid"></div></div></section>
-      <section class="view" id="view-settings"><div class="settings-grid"><div class="panel"><p class="eyebrow">Compte</p><h2>Compte Firebase</h2><div id="accountPanel" class="account-panel">
-            <div id="authWelcomeCard" class="auth-welcome-card">
+      <!-- Itinerary View -->
+      <section class="view" id="view-itinerary">
+        <div class="panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Étapes</p>
+              <h2>Départ, arrêts et destination</h2>
+            </div>
+            <button class="button button--primary" id="addStepBtn">+ Ajouter une étape</button>
+          </div>
+          <div id="stepsList" class="steps-list"></div>
+        </div>
+        
+        <div class="panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Trajets</p>
+              <h2>Point par point</h2>
+            </div>
+            <button class="button" id="recenterMapBtn">Recentrer</button>
+            <a href="https://www.openstreetmap.org" target="_blank" class="button">Ouvrir OSM</a>
+          </div>
+          <div id="mapCanvas" class="map-canvas"></div>
+        </div>
+      </section>
+
+      <!-- Budget View -->
+      <section class="view" id="view-budget">
+        <div class="panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Budget</p>
+              <h2>Dépenses prévues et réelles</h2>
+            </div>
+            <button class="button button--primary" id="addExpenseBtn">+ Dépense</button>
+          </div>
+          <div id="expensesList" class="stack"></div>
+        </div>
+        
+        <div class="panel">
+          <div class="section-heading">
+            <p class="eyebrow">TriCount</p>
+            <h2>Qui doit quoi ?</h2>
+          </div>
+          <div id="settlementsList" class="stack"></div>
+        </div>
+      </section>
+
+      <!-- Suggestions View -->
+      <section class="view" id="view-suggestions">
+        <div class="panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Assistant</p>
+              <h2>Suggestions intelligentes</h2>
+            </div>
+            <button class="button" id="autoCorrectBtn">Corriger automatiquement</button>
+          </div>
+          <div id="suggestionsList" class="suggestion-board"></div>
+        </div>
+      </section>
+
+      <!-- Preparation View -->
+      <section class="view" id="view-preparation">
+        <div class="panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Avant départ</p>
+              <h2>Checklists</h2>
+            </div>
+            <button class="button button--primary" id="addChecklistBtn">+ Bloc</button>
+          </div>
+          <div id="checklistsGrid" class="checklist-grid"></div>
+        </div>
+      </section>
+
+      <!-- Journal View -->
+      <section class="view" id="view-journal">
+        <div class="panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Souvenirs</p>
+              <h2>Carnet de voyage</h2>
+            </div>
+          </div>
+          <div id="journalGrid" class="journal-grid"></div>
+        </div>
+      </section>
+
+      <!-- Settings View -->
+      <section class="view" id="view-settings">
+        <div class="panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Compte</p>
+              <h2>Compte Firebase</h2>
+            </div>
+          </div>
+          
+          <div id="cloudAuthSection">
+            <div class="auth-welcome-card">
               <div class="auth-welcome-icon">✈</div>
               <div>
                 <p class="eyebrow">Connexion sécurisée</p>
@@ -93,7 +386,9 @@
                 <p>Connecte-toi pour retrouver tes voyages, publier dans la communauté et synchroniser tes données automatiquement.</p>
               </div>
             </div>
+            
             <div id="cloudStatus" class="status-banner" hidden></div>
+            
             <div id="cloudProfile" class="account-card" hidden>
               <span id="cloudAvatar" class="account-avatar">U</span>
               <div>
@@ -102,19 +397,38 @@
                 <small id="cloudProvider">Google, e-mail ou invité</small>
               </div>
             </div>
+            
+            <!-- Authentication methods -->
             <div class="auth-choice-grid">
+              <!-- Google Auth -->
               <section class="auth-method-card">
                 <p class="eyebrow">Google</p>
                 <h3>Connexion rapide</h3>
                 <p>Utilise ton compte Google pour accéder à tes voyages synchronisés.</p>
-                <button class="button button--primary full" id="cloudSignInBtn" type="button"><span class="google-dot">G</span> Continuer avec Google</button>
+                <button class="button button--primary full" id="cloudSignInBtn" type="button">
+                  <span class="google-dot">G</span> Continuer avec Google
+                </button>
               </section>
+              
+              <!-- Email Auth -->
               <section class="auth-method-card">
                 <p class="eyebrow">E-mail</p>
                 <h3>Adresse e-mail / mot de passe</h3>
                 <form id="emailLoginForm" class="email-login-form">
-                  <input id="emailAuthEmail" class="input" type="email" autocomplete="email" placeholder="adresse@email.com" />
-                  <input id="emailAuthPassword" class="input" type="password" autocomplete="current-password" placeholder="Mot de passe" />
+                  <input 
+                    id="emailAuthEmail" 
+                    class="input" 
+                    type="email" 
+                    autocomplete="email" 
+                    placeholder="adresse@email.com"
+                  />
+                  <input 
+                    id="emailAuthPassword" 
+                    class="input" 
+                    type="password" 
+                    autocomplete="current-password" 
+                    placeholder="Mot de passe"
+                  />
                   <div class="button-row">
                     <button class="button button--primary" type="submit">Se connecter</button>
                     <button class="button" id="cloudEmailRegisterBtn" type="button">Créer un compte</button>
@@ -122,34 +436,330 @@
                   </div>
                 </form>
               </section>
+              
+              <!-- Guest Auth -->
               <section class="auth-method-card auth-method-card--guest">
                 <p class="eyebrow">Invité</p>
                 <h3>Accès anonyme</h3>
                 <p>Entre sans compte Google ni mot de passe. Firebase crée un espace privé invité sur ce navigateur.</p>
-                <button class="button button--primary full" id="cloudAnonymousSignInBtn" type="button">Continuer en invité</button>
+                <button class="button button--primary full" id="cloudAnonymousSignInBtn" type="button">
+                  Continuer en invité
+                </button>
               </section>
             </div>
+            
             <div class="account-actions">
               <button class="button" id="cloudSignOutBtn" type="button">Déconnexion</button>
               <span id="cloudSyncMeta" class="muted">Sauvegarde Firebase automatique après connexion.</span>
             </div>
+            
             <div class="danger-zone">
-              <div><strong>Réinitialiser le compte</strong><span>Supprime les voyages enregistrés pour ce compte.</span></div>
+              <div>
+                <strong>Réinitialiser le compte</strong>
+                <span>Supprime les voyages enregistrés pour ce compte.</span>
+              </div>
               <button class="button button--danger" id="deleteCloudDataBtn" type="button">Supprimer</button>
             </div>
-          </div></div><form id="settingsForm" class="panel form-grid"><div class="wide"><p class="eyebrow">Préférences</p><h2>Estimations & sauvegarde</h2></div><label>Sauvegarde auto (minutes)<input class="input" name="autosaveMinutes" type="number" min="1" /></label><label>Voiture km/h<input class="input" name="carSpeed" type="number" min="1" /></label><label>Train km/h<input class="input" name="trainSpeed" type="number" min="1" /></label><label>Marche km/h<input class="input" name="walkSpeed" type="number" min="1" /></label><button class="button button--primary wide" type="submit">Enregistrer</button></form></div></section>
+          </div>
+        </div>
+        
+        <!-- Preferences Form -->
+        <form id="settingsForm" class="panel form-grid">
+          <div class="wide">
+            <p class="eyebrow">Préférences</p>
+            <h2>Estimations & sauvegarde</h2>
+          </div>
+          
+          <label>
+            Sauvegarde auto (minutes)
+            <input class="input" name="autosaveMinutes" type="number" min="1" />
+          </label>
+          <label>
+            Voiture km/h
+            <input class="input" name="carSpeed" type="number" min="1" />
+          </label>
+          <label>
+            Train km/h
+            <input class="input" name="trainSpeed" type="number" min="1" />
+          </label>
+          <label>
+            Marche km/h
+            <input class="input" name="walkSpeed" type="number" min="1" />
+          </label>
+          
+          <button class="button button--primary wide" type="submit">Enregistrer</button>
+        </form>
+      </section>
 
-      <footer class="site-footer"><div><strong>Travel Planner</strong><span>Créé par Lucas S.</span></div><div><span>Données privées synchronisées avec Firebase</span><span>Cartographie © OpenStreetMap</span><span>Version V4.19</span></div></footer>
+      <!-- Footer -->
+      <footer class="site-footer">
+        <div>
+          <strong>Travel Planner</strong>
+          <span>Créé par Lucas S.</span>
+        </div>
+        <div>
+          <span>Données privées synchronisées avec Firebase</span>
+          <span>Cartographie © OpenStreetMap</span>
+          <span>Version V4.20</span>
+        </div>
+      </footer>
     </main>
   </div>
 
-  <button class="fab" id="fabBtn" type="button">+</button><div class="fab-menu" id="fabMenu" hidden><button data-fab="trip">+ Voyage</button><button data-fab="step">+ Étape</button><button data-fab="expense">+ Dépense</button><button data-fab="today">Aujourd’hui</button></div>
+  <!-- Floating Action Button -->
+  <button class="fab" id="fabBtn" type="button" aria-label="Menu actions">+</button>
+  <div class="fab-menu" id="fabMenu" hidden>
+    <button data-fab="trip" aria-label="Ajouter un voyage">+ Voyage</button>
+    <button data-fab="step" aria-label="Ajouter une étape">+ Étape</button>
+    <button data-fab="expense" aria-label="Ajouter une dépense">+ Dépense</button>
+    <button data-fab="today" aria-label="Aller à aujourd'hui">Aujourd'hui</button>
+  </div>
 
-  <dialog id="stepDialog" class="modal"><form id="stepForm" method="dialog" class="modal-card form-grid"><button class="modal-close" type="button" data-close-dialog="stepDialog">×</button><div class="wide"><p class="eyebrow">Étape</p><h2 id="stepDialogTitle">Ajouter une étape</h2></div><input type="hidden" name="id" /><label class="wide">Rechercher un lieu<input class="input" name="search" placeholder="Hôtel Regina, Paris, France" /></label><button class="button" type="button" id="geocodeBtn">Rechercher</button><div id="geocodeResults" class="wide geocode-results"></div><label>Nom<input class="input" name="name" required /></label><label>Type<select class="input" name="type"></select></label><label class="wide">Adresse<input class="input" name="address" /></label><label>Latitude<input class="input" name="lat" type="number" step="any" /></label><label>Longitude<input class="input" name="lng" type="number" step="any" /></label><label>Date d’arrivée<input class="input" name="arrivalDate" type="date" /></label><label>Heure d’arrivée<input class="input" name="arrivalTime" type="time" /></label><label>Date de départ<input class="input" name="departureDate" type="date" /></label><label>Heure de départ<input class="input" name="departureTime" type="time" /></label><label>Durée prévue<input class="input" name="duration" placeholder="2 nuits, matinée…" /></label><label>Coût estimé<input class="input" name="cost" type="number" min="0" step="0.01" /></label><label>Priorité<select class="input" name="priority"><option>indispensable</option><option>optionnel</option><option>bonus</option></select></label><label>Couleur<input class="input" name="color" type="color" value="#2563eb" /></label><label class="wide">Liens utiles<input class="input" name="links" placeholder="https://…, https://…" /></label><label class="wide">Notes<textarea class="input" name="notes" rows="3"></textarea></label><div class="wide logic-note">Indique quand tu arrives sur place, puis quand tu repars. Le départ ne peut pas être avant l’arrivée.</div><div class="wide form-actions"><button class="button" type="button" data-close-dialog="stepDialog">Annuler</button><button class="button button--primary" type="submit">Enregistrer</button></div></form></dialog>
-  <dialog id="expenseDialog" class="modal"><form id="expenseForm" method="dialog" class="modal-card form-grid"><button class="modal-close" type="button" data-close-dialog="expenseDialog">×</button><div class="wide"><p class="eyebrow">Budget</p><h2 id="expenseDialogTitle">Ajouter une dépense</h2></div><input type="hidden" name="id" /><label>Libellé<input class="input" name="label" required /></label><label>Catégorie<select class="input" name="category"></select></label><label>Montant prévu<input class="input" name="planned" type="number" min="0" step="0.01" /></label><label>Montant réel<input class="input" name="actual" type="number" min="0" step="0.01" /></label><label>Statut<select class="input" name="status"><option>prévue</option><option>payée</option><option>à rembourser</option><option>partagée</option></select></label><label>Payé par<input class="input" name="paidBy" /></label><label class="wide">Partagé avec<input class="input" name="sharedWith" placeholder="Lucas, Emma" /></label><label>Date<input class="input" name="date" type="date" /></label><label>Liée à une étape<select class="input" name="stepId"></select></label><label class="wide">Note<textarea class="input" name="note" rows="3"></textarea></label><div class="wide form-actions"><button class="button" type="button" data-close-dialog="expenseDialog">Annuler</button><button class="button button--primary" type="submit">Enregistrer</button></div></form></dialog>
-  <dialog id="publishDialog" class="modal"><form id="publishForm" method="dialog" class="modal-card form-grid"><button class="modal-close" type="button" data-close-dialog="publishDialog">×</button><div class="wide"><p class="eyebrow">Communauté</p><h2>Partager ce voyage</h2><p>Une copie publique de consultation sera créée.</p></div><label>Titre public<input class="input" name="title" required /></label><label>Pays / zone<input class="input" name="country" /></label><label>Catégorie<select class="input" name="category"><option value="roadtrip">Roadtrip</option><option value="citybreak">City break</option><option value="aventure">Aventure</option><option value="nature">Nature</option><option value="plage">Plage</option><option value="culture">Culture</option><option value="gastronomie">Gastronomie</option><option value="famille">Famille</option><option value="budget">Petit budget</option><option value="confort">Confort</option></select></label><label class="wide">Image<input class="input" name="coverImage" type="url" /></label><label class="wide">Description<textarea class="input" name="description" rows="4"></textarea></label><label class="check"><input type="checkbox" name="hideBudget" /> Masquer le budget</label><label class="check"><input type="checkbox" name="allowCopy" checked /> Autoriser la copie</label><div class="wide form-actions"><button class="button" type="button" data-close-dialog="publishDialog">Annuler</button><button class="button button--primary" type="submit">Publier</button></div></form></dialog>
-  <dialog id="confirmDialog" class="modal small"><form method="dialog" class="modal-card"><h2 id="confirmTitle">Confirmation</h2><p id="confirmMessage"></p><div class="form-actions"><button class="button" value="cancel">Annuler</button><button class="button button--primary" value="default">Confirmer</button></div></form></dialog>
+  <!-- Dialogs (Modals) -->
+  
+  <!-- Step Dialog -->
+  <dialog id="stepDialog" class="modal">
+    <form id="stepForm" method="dialog" class="modal-card form-grid">
+      <button class="modal-close" type="button" data-close-dialog="stepDialog" aria-label="Fermer">×</button>
+      
+      <div class="wide">
+        <p class="eyebrow">Étape</p>
+        <h2 id="stepDialogTitle">Ajouter une étape</h2>
+      </div>
+      
+      <input type="hidden" name="id" />
+      
+      <label class="wide">
+        Rechercher un lieu
+        <input class="input" name="search" placeholder="Hôtel Regina, Paris, France" />
+      </label>
+      <button class="button" type="button" id="geocodeBtn">Rechercher</button>
+      <div id="geocodeResults" class="wide geocode-results"></div>
+      
+      <label>
+        Nom
+        <input class="input" name="name" required />
+      </label>
+      <label>
+        Type
+        <select class="input" name="type"></select>
+      </label>
+      <label class="wide">
+        Adresse
+        <input class="input" name="address" />
+      </label>
+      <label>
+        Latitude
+        <input class="input" name="lat" type="number" step="any" />
+      </label>
+      <label>
+        Longitude
+        <input class="input" name="lng" type="number" step="any" />
+      </label>
+      
+      <label>
+        Date d'arrivée
+        <input class="input" name="arrivalDate" type="date" />
+      </label>
+      <label>
+        Heure d'arrivée
+        <input class="input" name="arrivalTime" type="time" />
+      </label>
+      <label>
+        Date de départ
+        <input class="input" name="departureDate" type="date" />
+      </label>
+      <label>
+        Heure de départ
+        <input class="input" name="departureTime" type="time" />
+      </label>
+      
+      <label>
+        Durée prévue
+        <input class="input" name="duration" placeholder="2 nuits, matinée…" />
+      </label>
+      <label>
+        Coût estimé
+        <input class="input" name="cost" type="number" min="0" step="0.01" />
+      </label>
+      <label>
+        Priorité
+        <select class="input" name="priority">
+          <option>indispensable</option>
+          <option>optionnel</option>
+          <option>bonus</option>
+        </select>
+      </label>
+      <label>
+        Couleur
+        <input class="input" name="color" type="color" value="#2563eb" />
+      </label>
+      
+      <label class="wide">
+        Liens utiles
+        <input class="input" name="links" placeholder="https://…, https://…" />
+      </label>
+      <label class="wide">
+        Notes
+        <textarea class="input" name="notes" rows="3"></textarea>
+      </label>
+      
+      <div class="wide logic-note">
+        Indique quand tu arrives sur place, puis quand tu repars. Le départ ne peut pas être avant l'arrivée.
+      </div>
+      
+      <div class="wide form-actions">
+        <button class="button" type="button" data-close-dialog="stepDialog">Annuler</button>
+        <button class="button button--primary" type="submit">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
 
-  <script src="js/firebase-config.js?v=v419"></script><script src="js/utils.js?v=v419"></script><script src="js/storage.js?v=v419"></script><script src="js/firebase-sync.js?v=v419"></script><script src="js/budget.js?v=v419"></script><script src="js/itinerary.js?v=v419"></script><script src="js/suggestions.js?v=v419"></script><script src="js/geocoder.js?v=v419"></script><script src="js/map.js?v=v419"></script><script src="js/app.js?v=v419"></script>
+  <!-- Expense Dialog -->
+  <dialog id="expenseDialog" class="modal">
+    <form id="expenseForm" method="dialog" class="modal-card form-grid">
+      <button class="modal-close" type="button" data-close-dialog="expenseDialog" aria-label="Fermer">×</button>
+      
+      <div class="wide">
+        <p class="eyebrow">Budget</p>
+        <h2 id="expenseDialogTitle">Ajouter une dépense</h2>
+      </div>
+      
+      <input type="hidden" name="id" />
+      
+      <label>
+        Libellé
+        <input class="input" name="label" required />
+      </label>
+      <label>
+        Catégorie
+        <select class="input" name="category"></select>
+      </label>
+      <label>
+        Montant prévu
+        <input class="input" name="planned" type="number" min="0" step="0.01" />
+      </label>
+      <label>
+        Montant réel
+        <input class="input" name="actual" type="number" min="0" step="0.01" />
+      </label>
+      <label>
+        Statut
+        <select class="input" name="status">
+          <option>prévue</option>
+          <option>payée</option>
+          <option>à rembourser</option>
+          <option>partagée</option>
+        </select>
+      </label>
+      <label>
+        Payé par
+        <input class="input" name="paidBy" />
+      </label>
+      <label class="wide">
+        Partagé avec
+        <input class="input" name="sharedWith" placeholder="Lucas, Emma" />
+      </label>
+      <label>
+        Date
+        <input class="input" name="date" type="date" />
+      </label>
+      <label>
+        Liée à une étape
+        <select class="input" name="stepId"></select>
+      </label>
+      <label class="wide">
+        Note
+        <textarea class="input" name="note" rows="3"></textarea>
+      </label>
+      
+      <div class="wide form-actions">
+        <button class="button" type="button" data-close-dialog="expenseDialog">Annuler</button>
+        <button class="button button--primary" type="submit">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Publish Community Trip Dialog -->
+  <dialog id="publishDialog" class="modal">
+    <form id="publishForm" method="dialog" class="modal-card form-grid">
+      <button class="modal-close" type="button" data-close-dialog="publishDialog" aria-label="Fermer">×</button>
+      
+      <div class="wide">
+        <p class="eyebrow">Communauté</p>
+        <h2>Partager ce voyage</h2>
+        <p>Une copie publique de consultation sera créée.</p>
+      </div>
+      
+      <label>
+        Titre public
+        <input class="input" name="title" required />
+      </label>
+      <label>
+        Pays / zone
+        <input class="input" name="country" />
+      </label>
+      <label>
+        Catégorie
+        <select class="input" name="category">
+          <option value="roadtrip">Roadtrip</option>
+          <option value="citybreak">City break</option>
+          <option value="aventure">Aventure</option>
+          <option value="nature">Nature</option>
+          <option value="plage">Plage</option>
+          <option value="culture">Culture</option>
+          <option value="gastronomie">Gastronomie</option>
+          <option value="famille">Famille</option>
+          <option value="budget">Petit budget</option>
+          <option value="confort">Confort</option>
+        </select>
+      </label>
+      <label class="wide">
+        Image
+        <input class="input" name="coverImage" type="url" />
+      </label>
+      <label class="wide">
+        Description
+        <textarea class="input" name="description" rows="4"></textarea>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="hideBudget" />
+        Masquer le budget
+      </label>
+      <label class="check">
+        <input type="checkbox" name="allowCopy" checked />
+        Autoriser la copie
+      </label>
+      
+      <div class="wide form-actions">
+        <button class="button" type="button" data-close-dialog="publishDialog">Annuler</button>
+        <button class="button button--primary" type="submit">Publier</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Confirmation Dialog -->
+  <dialog id="confirmDialog" class="modal small">
+    <form method="dialog" class="modal-card">
+      <h2 id="confirmTitle">Confirmation</h2>
+      <p id="confirmMessage"></p>
+      <div class="form-actions">
+        <button class="button" value="cancel">Annuler</button>
+        <button class="button button--primary" value="default">Confirmer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Scripts (deferred loading) -->
+  <script defer src="js/firebase-config.js?v=v420"></script>
+  <script defer src="js/utils.js?v=v420"></script>
+  <script defer src="js/storage.js?v=v420"></script>
+  <script defer src="js/firebase-sync.js?v=v420"></script>
+  <script defer src="js/budget.js?v=v420"></script>
+  <script defer src="js/itinerary.js?v=v420"></script>
+  <script defer src="js/suggestions.js?v=v420"></script>
+  <script defer src="js/geocoder.js?v=v420"></script>
+  <script defer src="js/map.js?v=v420"></script>
+  <script defer src="js/app.js?v=v420"></script>
 </body>
 </html>
