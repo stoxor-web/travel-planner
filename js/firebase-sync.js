@@ -5,6 +5,7 @@
   const LOCAL_CONFIG_KEY = 'travelPlanner:firebaseConfig';
   const AUTO_SYNC_KEY = 'travelPlanner:firebaseAutoSync';
   const COLLECTION = 'travelPlannerUsers';
+  const COMMUNITY_COLLECTION = 'communityTrips';
 
   let firebaseApp = null;
   let firebaseAuth = null;
@@ -13,6 +14,8 @@
   let currentUser = null;
   let currentStatus = 'Firebase non configuré.';
   let initializingPromise = null;
+  let authReadyPromise = null;
+  let authReadyResolved = false;
   const authListeners = new Set();
 
   function cleanConfig(config = {}) {
@@ -73,6 +76,8 @@
     modules = null;
     currentUser = null;
     initializingPromise = null;
+    authReadyPromise = null;
+    authReadyResolved = false;
     currentStatus = hasRequiredConfig() ? 'Firebase configuré. Connexion Google disponible.' : 'Firebase non configuré.';
     notifyAuthListeners();
   }
@@ -108,24 +113,19 @@
       } catch (error) {
         console.warn('Persistance Firebase Auth non modifiée.', error);
       }
-      try {
-        const redirectResult = await authModule.getRedirectResult(firebaseAuth);
-        if (redirectResult?.user) {
-          currentUser = redirectResult.user;
-          currentStatus = `Connecté avec ${currentUser.email || currentUser.displayName || 'Google'}.`;
+      authReadyResolved = false;
+      authReadyPromise = new Promise(resolve => {
+        authModule.onAuthStateChanged(firebaseAuth, user => {
+          currentUser = user;
+          currentStatus = user ? `Connecté à Firebase avec ${user.email || user.displayName || 'un compte Google'}.` : 'Firebase configuré. Aucun compte Google connecté.';
           notifyAuthListeners();
-        }
-      } catch (error) {
-        console.warn('Résultat de redirection Google ignoré.', error);
-        currentStatus = humanizeFirebaseError(error);
-        notifyAuthListeners();
-      }
-      authModule.onAuthStateChanged(firebaseAuth, user => {
-        currentUser = user;
-        currentStatus = user ? `Connecté avec ${user.email || user.displayName || 'Google'}.` : 'Connexion Google requise.';
-        notifyAuthListeners();
+          if (!authReadyResolved) {
+            authReadyResolved = true;
+            resolve(user || null);
+          }
+        });
       });
-      currentStatus = currentUser ? `Connecté avec ${currentUser.email || currentUser.displayName || 'Google'}.` : 'Firebase prêt.';
+      currentStatus = 'Firebase initialisé.';
       notifyAuthListeners();
       return { auth: firebaseAuth, db: firestoreDb, user: currentUser };
     })();
@@ -138,17 +138,9 @@
     }
   }
 
-  function humanizeFirebaseError(error) {
-    const code = error?.code || '';
-    const messages = {
-      'auth/unauthorized-domain': 'Domaine non autorisé dans Firebase Authentication.',
-      'auth/popup-blocked': 'Popup bloquée. Connexion par redirection lancée.',
-      'auth/cancelled-popup-request': 'Connexion déjà en cours.',
-      'auth/popup-closed-by-user': 'Fenêtre de connexion fermée.',
-      'auth/network-request-failed': 'Connexion réseau impossible.',
-      'permission-denied': 'Accès Firestore refusé. Vérifie les règles de sécurité.'
-    };
-    return messages[code] || error?.message || 'Erreur Firebase.';
+  async function waitForAuthState() {
+    await init();
+    return authReadyPromise || currentUser || null;
   }
 
   async function signIn() {
@@ -159,17 +151,14 @@
     try {
       const result = await authModule.signInWithPopup(auth, provider);
       currentUser = result.user;
-      currentStatus = `Connecté avec ${currentUser.email || currentUser.displayName || 'Google'}.`;
+      currentStatus = `Connecté à Firebase avec ${currentUser.email || currentUser.displayName || 'Google'}.`;
       notifyAuthListeners();
       return currentUser;
     } catch (error) {
-      if (['auth/popup-blocked', 'auth/cancelled-popup-request', 'auth/operation-not-supported-in-this-environment'].includes(error.code)) {
-        currentStatus = 'Redirection Google en cours…';
-        notifyAuthListeners();
+      if (['auth/popup-blocked', 'auth/cancelled-popup-request'].includes(error.code)) {
         await authModule.signInWithRedirect(auth, provider);
         return null;
       }
-      error.message = humanizeFirebaseError(error);
       throw error;
     }
   }
@@ -191,16 +180,6 @@
   function cloudDocRef() {
     const { firestoreModule } = modules;
     return firestoreModule.doc(firestoreDb, COLLECTION, currentUser.uid);
-  }
-
-  function publicTripDocRef(shareId) {
-    const { firestoreModule } = modules;
-    return firestoreModule.doc(firestoreDb, 'publicTrips', shareId);
-  }
-
-  function collaborativeTripDocRef(shareId) {
-    const { firestoreModule } = modules;
-    return firestoreModule.doc(firestoreDb, 'sharedTrips', shareId);
   }
 
   function sanitizeStateForCloud(state) {
@@ -248,144 +227,119 @@
     };
   }
 
-
-  function waitForAuthState(timeoutMs = 5000) {
-    return new Promise(resolve => {
-      if (!firebaseAuth) return resolve(currentUser);
-      let done = false;
-      let unsubscribe = () => {};
-      const timer = setTimeout(() => {
-        if (done) return;
-        done = true;
-        unsubscribe();
-        resolve(currentUser);
-      }, timeoutMs);
-      const { authModule } = modules;
-      unsubscribe = authModule.onAuthStateChanged(firebaseAuth, user => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        currentUser = user;
-        unsubscribe();
-        resolve(user);
-      });
-    });
-  }
-
   async function deleteState() {
     await init();
     requireSignedIn();
     const { firestoreModule } = await loadModules();
     await firestoreModule.deleteDoc(cloudDocRef());
-    currentStatus = 'Données Google supprimées.';
+    currentStatus = 'Données Firebase supprimées pour ce compte.';
     notifyAuthListeners();
   }
 
-  function sanitizeTripForPublic(trip, options = {}) {
-    const copy = JSON.parse(JSON.stringify(trip || {}));
-    if (options.hideBudget) {
-      copy.maxBudget = 0;
-      copy.expenses = [];
-      copy.steps = (copy.steps || []).map(step => ({ ...step, cost: 0, segmentCost: 0 }));
-    }
-    if (options.hideNotes) {
-      copy.description = '';
-      copy.steps = (copy.steps || []).map(step => ({ ...step, notes: '', links: [], segmentNote: '' }));
-    }
-    if (options.hideJournal) {
-      copy.steps = (copy.steps || []).map(step => ({ ...step, journal: {} }));
-    }
-    return copy;
+  function serializeFirestoreDoc(snapshot) {
+    const data = snapshot.data() || {};
+    return {
+      id: snapshot.id,
+      ...data,
+      publishedAt: data.publishedAt?.toDate ? data.publishedAt.toDate().toISOString() : (data.publishedAt || ''),
+      updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : (data.updatedAt || '')
+    };
   }
 
-  async function publishTripShare(trip, options = {}) {
+  function communityDocRef(id) {
+    const { firestoreModule } = modules;
+    return firestoreModule.doc(firestoreDb, COMMUNITY_COLLECTION, id);
+  }
+
+  async function listCommunityTrips() {
+    await init();
+    const { firestoreModule } = await loadModules();
+    const snapshot = await firestoreModule.getDocs(firestoreModule.collection(firestoreDb, COMMUNITY_COLLECTION));
+    return snapshot.docs.map(serializeFirestoreDoc).filter(item => item.schema === 'communityTrip');
+  }
+
+  function buildCommunityId(sourceTripId) {
+    const raw = `${currentUser.uid}_${sourceTripId || Date.now()}`;
+    return raw.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 180);
+  }
+
+  async function publishCommunityTrip(payload) {
     await init();
     requireSignedIn();
     const { firestoreModule } = await loadModules();
-    const shareId = trip.shareId || `${currentUser.uid.slice(0, 8)}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-    const payload = {
+    const id = buildCommunityId(payload.sourceTripId);
+    const ref = communityDocRef(id);
+    const existingSnap = await firestoreModule.getDoc(ref);
+    const existing = existingSnap.exists() ? existingSnap.data() : {};
+    const nowIso = new Date().toISOString();
+    const existingPublishedAt = existing.publishedAt?.toDate ? existing.publishedAt.toDate().toISOString() : (typeof existing.publishedAt === 'string' ? existing.publishedAt : nowIso);
+    const doc = JSON.parse(JSON.stringify({
+      schema: 'communityTrip',
+      schemaVersion: 1,
+      id,
       ownerUid: currentUser.uid,
       ownerEmail: currentUser.email || '',
-      public: true,
-      schema: 'travelPlannerPublicTrip',
-      schemaVersion: 1,
-      shareId,
-      options: { hideBudget: Boolean(options.hideBudget), hideNotes: Boolean(options.hideNotes), hideJournal: Boolean(options.hideJournal) },
-      trip: sanitizeTripForPublic({ ...trip, shareId }, options),
-      clientUpdatedAt: new Date().toISOString(),
+      ownerName: currentUser.displayName || currentUser.email || 'Voyageur',
+      sourceTripId: payload.sourceTripId || '',
+      title: payload.title || 'Voyage partagé',
+      country: payload.country || payload.area || '',
+      area: payload.area || payload.country || '',
+      category: payload.category || 'citybreak',
+      style: payload.style || 'équilibré',
+      pace: payload.pace || 'normal',
+      interests: payload.interests || '',
+      description: payload.description || '',
+      coverImage: payload.coverImage || '',
+      currency: payload.currency || '€',
+      publicBudget: Number(payload.publicBudget) || 0,
+      hideBudget: Boolean(payload.hideBudget),
+      hideNotes: Boolean(payload.hideNotes),
+      allowCopy: payload.allowCopy !== false,
+      durationDays: Number(payload.durationDays) || 0,
+      stepsCount: Number(payload.stepsCount) || 0,
+      highlights: Array.isArray(payload.highlights) ? payload.highlights : [],
+      trip: payload.trip || {},
+      votes: existing.votes || {},
+      upVotes: Number(existing.upVotes) || 0,
+      downVotes: Number(existing.downVotes) || 0,
+      trendScore: Number(existing.trendScore) || 0,
+      publishedAt: existingPublishedAt,
       updatedAt: firestoreModule.serverTimestamp()
-    };
-    await firestoreModule.setDoc(publicTripDocRef(shareId), payload);
-    currentStatus = 'Lien de partage mis à jour.';
-    notifyAuthListeners();
-    return { shareId, payload };
+    }));
+    doc.updatedAt = firestoreModule.serverTimestamp();
+    await firestoreModule.setDoc(ref, doc, { merge: true });
+    return { ...doc, updatedAt: nowIso };
   }
 
-  async function loadPublicShare(shareId) {
-    await init();
-    const { firestoreModule } = await loadModules();
-    const snapshot = await firestoreModule.getDoc(publicTripDocRef(shareId));
-    if (!snapshot.exists()) return null;
-    const data = snapshot.data();
-    if (!data.public || data.schema !== 'travelPlannerPublicTrip') throw new Error('Ce partage n’est pas public.');
-    currentStatus = 'Voyage partagé chargé.';
-    notifyAuthListeners();
-    return data;
-  }
-
-
-  function normalizeEmails(value) {
-    if (Array.isArray(value)) return value.map(email => String(email || '').trim().toLowerCase()).filter(Boolean);
-    return String(value || '').split(',').map(email => email.trim().toLowerCase()).filter(Boolean);
-  }
-
-  async function publishCollaborativeTrip(trip, emails = []) {
+  async function voteCommunityTrip(id, value) {
     await init();
     requireSignedIn();
     const { firestoreModule } = await loadModules();
-    const collaborators = normalizeEmails(emails);
-    const shareId = trip.collabId || `${currentUser.uid.slice(0, 8)}_co_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-    const payload = {
-      ownerUid: currentUser.uid,
-      ownerEmail: currentUser.email || '',
-      collaborators,
-      schema: 'travelPlannerCollaborativeTrip',
-      schemaVersion: 1,
-      shareId,
-      trip: JSON.parse(JSON.stringify({ ...trip, collabId: shareId, collaborators })),
-      clientUpdatedAt: new Date().toISOString(),
-      updatedAt: firestoreModule.serverTimestamp()
-    };
-    await firestoreModule.setDoc(collaborativeTripDocRef(shareId), payload);
-    currentStatus = 'Collaboration privée créée.';
-    notifyAuthListeners();
-    return { shareId, payload };
-  }
-
-  async function loadCollaborativeTrip(shareId) {
-    await init();
-    requireSignedIn();
-    const { firestoreModule } = await loadModules();
-    const snapshot = await firestoreModule.getDoc(collaborativeTripDocRef(shareId));
-    if (!snapshot.exists()) return null;
-    const data = snapshot.data();
-    currentStatus = 'Voyage collaboratif chargé.';
-    notifyAuthListeners();
-    return data;
-  }
-
-  async function saveCollaborativeTrip(shareId, trip) {
-    await init();
-    requireSignedIn();
-    const { firestoreModule } = await loadModules();
-    const ref = collaborativeTripDocRef(shareId);
-    await firestoreModule.updateDoc(ref, {
-      trip: JSON.parse(JSON.stringify({ ...trip, collabId: shareId })),
-      clientUpdatedAt: new Date().toISOString(),
-      updatedAt: firestoreModule.serverTimestamp()
+    const ref = communityDocRef(id);
+    const result = await firestoreModule.runTransaction(firestoreDb, async transaction => {
+      const snapshot = await transaction.get(ref);
+      if (!snapshot.exists()) throw new Error('Voyage communautaire introuvable.');
+      const data = snapshot.data();
+      const votes = { ...(data.votes || {}) };
+      const previous = Number(votes[currentUser.uid]) || 0;
+      const requested = value > 0 ? 1 : -1;
+      if (previous === requested) delete votes[currentUser.uid];
+      else votes[currentUser.uid] = requested;
+      const values = Object.values(votes).map(Number);
+      const upVotes = values.filter(v => v > 0).length;
+      const downVotes = values.filter(v => v < 0).length;
+      const trendScore = upVotes - downVotes;
+      transaction.update(ref, { votes, upVotes, downVotes, trendScore, updatedAt: firestoreModule.serverTimestamp() });
+      return { ...data, id: snapshot.id, votes, upVotes, downVotes, trendScore };
     });
-    currentStatus = 'Collaboration privée sauvegardée.';
-    notifyAuthListeners();
+    return result;
+  }
+
+  async function deleteCommunityTrip(id) {
+    await init();
+    requireSignedIn();
+    const { firestoreModule } = await loadModules();
+    await firestoreModule.deleteDoc(communityDocRef(id));
   }
 
   function isAutoSyncEnabled() {
@@ -423,17 +377,16 @@
     clearStoredConfig,
     isConfigured: hasRequiredConfig,
     init,
+    waitForAuthState,
     signIn,
     signOut,
     saveState,
     loadState,
-    waitForAuthState,
     deleteState,
-    publishTripShare,
-    loadPublicShare,
-    publishCollaborativeTrip,
-    loadCollaborativeTrip,
-    saveCollaborativeTrip,
+    listCommunityTrips,
+    publishCommunityTrip,
+    voteCommunityTrip,
+    deleteCommunityTrip,
     getUser,
     getStatus,
     onAuthChange,

@@ -4,7 +4,6 @@
   // Depuis la version Firebase-only, ce module ne persiste plus les voyages dans localStorage.
   // Il sert uniquement à normaliser l'état en mémoire avant lecture/écriture Firestore.
   const LEGACY_KEY = 'travelPlanner:v1';
-  const OFFLINE_CACHE_KEY = 'travelPlanner:offlineCache:v1';
   const { defaultSettings, deepMerge, uid, createDefaultChecklists, clone } = window.TravelUtils;
 
   const emptyState = {
@@ -22,20 +21,14 @@
     const now = new Date().toISOString();
     return {
       id: trip.id || uid('trip'),
-      shareId: trip.shareId || '',
-      collabId: trip.collabId || '',
-      collaborators: Array.isArray(trip.collaborators) ? trip.collaborators : [],
-      shareOptions: trip.shareOptions || {},
       name: trip.name || 'Nouveau voyage',
       description: trip.description || '',
       area: trip.area || '',
       coverImage: trip.coverImage || '',
       startDate: trip.startDate || '',
       endDate: trip.endDate || '',
-      travellersNames: Array.isArray(trip.travellersNames)
-        ? trip.travellersNames.map(name => String(name || '').trim()).filter(Boolean)
-        : String(trip.travellersNames || '').split(',').map(name => name.trim()).filter(Boolean),
-      travellers: Math.max(1, Array.isArray(trip.travellersNames) && trip.travellersNames.length ? trip.travellersNames.length : Number(trip.travellers) || 1),
+      travellers: Math.max(1, Number(trip.travellers) || 1),
+      travellersNames: trip.travellersNames || '',
       maxBudget: Number(trip.maxBudget) || 0,
       currency: trip.currency || '€',
       status: trip.status || 'brouillon',
@@ -61,9 +54,6 @@
         priority: step.priority || 'optionnel',
         color: step.color || '#2563eb',
         transportToNext: step.transportToNext || 'car',
-        segmentDepartureTime: step.segmentDepartureTime || '',
-        segmentArrivalTime: step.segmentArrivalTime || '',
-        segmentReference: step.segmentReference || '',
         segmentCost: Number(step.segmentCost) || 0,
         segmentNote: step.segmentNote || '',
         journal: step.journal || { notes: '', photoLinks: '', rating: '', realExpenses: '', weather: '', afterthoughts: '' }
@@ -72,15 +62,14 @@
         id: expense.id || uid('expense'),
         label: expense.label || 'Dépense',
         category: expense.category || 'autres',
-        amount: Number(expense.amount ?? expense.plannedAmount ?? expense.actualAmount) || 0,
-        plannedAmount: Number(expense.plannedAmount ?? expense.amount) || 0,
-        actualAmount: expense.actualAmount === '' || expense.actualAmount == null ? '' : Number(expense.actualAmount) || 0,
+        amount: Number(expense.amount) || 0,
         status: expense.status || 'prévue',
-        paidBy: expense.paidBy || '',
-        splitBetween: Array.isArray(expense.splitBetween) ? expense.splitBetween : [],
         date: expense.date || '',
         stepId: expense.stepId || '',
-        note: expense.note || ''
+        note: expense.note || '',
+        paidBy: expense.paidBy || '',
+        splitWith: Array.isArray(expense.splitWith) ? expense.splitWith : [],
+        realAmount: Number(expense.realAmount) || 0
       })) : [],
       checklists: trip.checklists || createDefaultChecklists(),
       createdAt: trip.createdAt || now,
@@ -100,28 +89,6 @@
       cleaned.activeTripId = cleaned.trips[0]?.id || null;
     }
     return cleaned;
-  }
-
-
-
-  function saveOfflineCache(state) {
-    try {
-      localStorage.setItem(OFFLINE_CACHE_KEY, JSON.stringify({ savedAt: new Date().toISOString(), state: normalizeState(state) }));
-    } catch (error) {
-      console.warn('Cache hors ligne non disponible.', error);
-    }
-  }
-
-  function loadOfflineCache() {
-    try {
-      const raw = localStorage.getItem(OFFLINE_CACHE_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      return { savedAt: parsed.savedAt || '', state: normalizeState(parsed.state || {}) };
-    } catch (error) {
-      console.warn('Cache hors ligne invalide.', error);
-      return null;
-    }
   }
 
   function load() {
@@ -204,8 +171,6 @@
     normalizeTrip,
     normalizeState,
     createEmptyState,
-    clearLegacyLocalBackup,
-    saveOfflineCache,
-    loadOfflineCache
+    clearLegacyLocalBackup
   };
 })();
