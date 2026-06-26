@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="description" content="Application personnelle de planification de voyages avec connexion Google." />
   <meta name="theme-color" content="#0b3b66" />
-  <link rel="icon" href="assets/icons/favicon.ico?v=20260626-v48-stable-pro" sizes="any" />
-  <link rel="icon" type="image/png" href="assets/icons/ChatGPT%20Image%2025%20juin%202026%2C%2015_26_24.png?v=20260626-v48-stable-pro" />
-  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png?v=20260626-v48-stable-pro" />
-  <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png?v=20260626-v48-stable-pro" />
-  <link rel="manifest" href="site.webmanifest?v=20260626-v48-stable-pro" />
+  <link rel="icon" href="assets/icons/favicon.ico?v=20260626-v49-premium" sizes="any" />
+  <link rel="icon" type="image/png" href="assets/icons/ChatGPT%20Image%2025%20juin%202026%2C%2015_26_24.png?v=20260626-v49-premium" />
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png?v=20260626-v49-premium" />
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png?v=20260626-v49-premium" />
+  <link rel="manifest" href="site.webmanifest?v=20260626-v49-premium" />
   <title>Travel Planner — Lucas S. Edition</title>
   <style id="critical-ui-stability">
     [hidden] { display: none !important; }
@@ -18,7 +18,7 @@
     dialog:not([open]) { display: none !important; }
     .search-results:empty { display: none !important; }
   </style>
-  <link rel="stylesheet" href="css/style.css?v=20260626-v48-stable-pro" />
+  <link rel="stylesheet" href="css/style.css?v=20260626-v49-premium" />
 </head>
 <body>
   <div class="app-shell">
@@ -33,6 +33,7 @@
 
       <nav class="nav-list">
         <button class="nav-item is-active" data-view-link="dashboard">🏠 <span>Accueil</span></button>
+        <button class="nav-item" data-view-link="today">📍 <span>Aujourd’hui</span></button>
         <button class="nav-item" data-view-link="community">🌍 <span>Communauté</span></button>
         <button class="nav-item" data-view-link="trip">🧭 <span>Voyage</span></button>
         <button class="nav-item" data-view-link="map">🗺️ <span>Carte</span></button>
@@ -99,7 +100,13 @@
         <div id="tripsGrid" class="trips-grid"></div>
       </section>
 
-
+      <section class="view" id="view-today" aria-labelledby="pageTitle">
+        <div class="today-shell">
+          <section id="todayHero" class="today-hero panel"></section>
+          <aside id="todayQuickActions" class="today-side panel"></aside>
+        </div>
+        <div id="todayTimeline" class="today-timeline panel"></div>
+      </section>
 
       <section class="view" id="view-community" aria-labelledby="pageTitle">
         <div class="community-hero panel">
@@ -148,6 +155,7 @@
         </div>
 
         <div id="communityStats" class="community-stats stats-grid"></div>
+        <div id="communityAdminPanel" class="community-admin-panel" hidden></div>
         <div id="communityGrid" class="community-grid"></div>
       </section>
 
@@ -418,6 +426,7 @@
           <span>Mentions légales</span>
           <span>Données protégées par connexion Google</span>
           <span>Contact : Lucas S.</span>
+          <span>Version V4.9 Premium</span>
           <span>© <span id="legalYear"></span> — Créé par Lucas S.</span>
         </div>
       </footer>
@@ -429,6 +438,7 @@
       <button class="fab-item" id="fabAddTrip">+ Voyage</button>
       <button class="fab-item" id="fabAddStep">+ Étape</button>
       <button class="fab-item" id="fabAddExpense">+ Dépense</button>
+      <button class="fab-item" id="fabOpenToday">Aujourd’hui</button>
       <button class="fab-item" id="fabOpenChecklist">Préparation</button>
     </div>
     <button class="fab-main" id="fabMainBtn" aria-label="Actions rapides">+</button>
@@ -675,15 +685,15 @@
     </form>
   </dialog>
 
-  <script src="js/utils.js?v=20260626-v48-stable-pro"></script>
-  <script src="js/firebase-config.js?v=20260626-v48-stable-pro"></script>
-  <script src="js/firebase-sync.js?v=20260626-v48-stable-pro"></script>
-  <script src="js/storage.js?v=20260626-v48-stable-pro"></script>
-  <script src="js/itinerary.js?v=20260626-v48-stable-pro"></script>
-  <script src="js/budget.js?v=20260626-v48-stable-pro"></script>
-  <script src="js/suggestions.js?v=20260626-v48-stable-pro"></script>
-  <script src="js/geocoder.js?v=20260626-v48-stable-pro"></script>
-  <script src="js/map.js?v=20260626-v48-stable-pro"></script>
-  <script src="js/app.js?v=20260626-v48-stable-pro"></script>
+  <script src="js/utils.js?v=20260626-v49-premium"></script>
+  <script src="js/firebase-config.js?v=20260626-v49-premium"></script>
+  <script src="js/firebase-sync.js?v=20260626-v49-premium"></script>
+  <script src="js/storage.js?v=20260626-v49-premium"></script>
+  <script src="js/itinerary.js?v=20260626-v49-premium"></script>
+  <script src="js/budget.js?v=20260626-v49-premium"></script>
+  <script src="js/suggestions.js?v=20260626-v49-premium"></script>
+  <script src="js/geocoder.js?v=20260626-v49-premium"></script>
+  <script src="js/map.js?v=20260626-v49-premium"></script>
+  <script src="js/app.js?v=20260626-v49-premium"></script>
 </body>
 </html>

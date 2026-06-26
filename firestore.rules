@@ -7,6 +7,10 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email == 'lucas.scribe01@gmail.com';
+    }
+
     function hasValidBackupShape() {
       return request.resource.data.keys().hasOnly([
         'ownerUid',
@@ -68,7 +72,7 @@ service cloud.firestore {
       );
 
       allow delete: if request.auth != null
-        && resource.data.ownerUid == request.auth.uid;
+        && (resource.data.ownerUid == request.auth.uid || isAdmin());
     }
 
     match /{document=**} {
