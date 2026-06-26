@@ -5,13 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="description" content="Application personnelle de planification de voyages avec connexion Google." />
   <meta name="theme-color" content="#0b3b66" />
-  <link rel="icon" href="assets/icons/favicon.ico" sizes="any" />
-  <link rel="icon" type="image/png" href="assets/icons/ChatGPT%20Image%2025%20juin%202026%2C%2015_26_24.png" />
-  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png" />
-  <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png" />
-  <link rel="manifest" href="site.webmanifest" />
+  <link rel="icon" href="assets/icons/favicon.ico?v=20260626-visual-fix-01" sizes="any" />
+  <link rel="icon" type="image/png" href="assets/icons/ChatGPT%20Image%2025%20juin%202026%2C%2015_26_24.png?v=20260626-visual-fix-01" />
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png?v=20260626-visual-fix-01" />
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png?v=20260626-visual-fix-01" />
+  <link rel="manifest" href="site.webmanifest?v=20260626-visual-fix-01" />
   <title>Travel Planner — Lucas S. Edition</title>
-  <link rel="stylesheet" href="css/style.css" />
+  <style id="critical-ui-stability">
+    [hidden] { display: none !important; }
+    .view { display: none; }
+    .view.is-visible { display: block; }
+    dialog:not([open]) { display: none !important; }
+    .search-results:empty { display: none !important; }
+  </style>
+  <link rel="stylesheet" href="css/style.css?v=20260626-visual-fix-01" />
 </head>
 <body>
   <div class="app-shell">
@@ -668,15 +675,15 @@
     </form>
   </dialog>
 
-  <script src="js/utils.js"></script>
-  <script src="js/firebase-config.js"></script>
-  <script src="js/firebase-sync.js"></script>
-  <script src="js/storage.js"></script>
-  <script src="js/itinerary.js"></script>
-  <script src="js/budget.js"></script>
-  <script src="js/suggestions.js"></script>
-  <script src="js/geocoder.js"></script>
-  <script src="js/map.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/utils.js?v=20260626-visual-fix-01"></script>
+  <script src="js/firebase-config.js?v=20260626-visual-fix-01"></script>
+  <script src="js/firebase-sync.js?v=20260626-visual-fix-01"></script>
+  <script src="js/storage.js?v=20260626-visual-fix-01"></script>
+  <script src="js/itinerary.js?v=20260626-visual-fix-01"></script>
+  <script src="js/budget.js?v=20260626-visual-fix-01"></script>
+  <script src="js/suggestions.js?v=20260626-visual-fix-01"></script>
+  <script src="js/geocoder.js?v=20260626-visual-fix-01"></script>
+  <script src="js/map.js?v=20260626-visual-fix-01"></script>
+  <script src="js/app.js?v=20260626-visual-fix-01"></script>
 </body>
 </html>

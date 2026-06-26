@@ -1,20 +1,28 @@
 # Travel Planner — Lucas S. Edition
 
-Application web personnelle de planification de voyages, hébergeable sur GitHub Pages, synchronisée avec Google/Firebase.
+Application web personnelle de planification de voyages, hébergeable sur GitHub Pages et synchronisée avec Google/Firebase.
 
-## Nouveauté V4.7 — Communauté
+## Correctif visuel stable
 
-Cette version ajoute une vraie page **Communauté** :
+Cette archive est une version complète prête à publier. Elle corrige les problèmes de rendu pouvant apparaître quand GitHub Pages ou le navigateur gardent une ancienne version du CSS/JS en cache.
 
-- page accessible à tous depuis le menu `Communauté` ;
-- publication d’un voyage actif dans une galerie publique ;
-- rangement par pays / zone ;
-- rangement par catégorie : roadtrip, city break, aventure, nature, plage, culture, gastronomie, famille, petit budget, confort ;
-- tri par tendance, récents, votes, durée ou budget ;
-- système de vote `+ Tendance` / `-` ;
-- possibilité de copier un voyage communautaire dans son espace personnel ;
-- publication sécurisée : options pour masquer le budget et les notes privées ;
-- suppression possible par l’auteur de sa propre publication.
+Corrections appliquées :
+
+- ajout d’un cache-busting sur `style.css` et tous les scripts JavaScript ;
+- ajout d’un CSS critique dans `index.html` pour masquer correctement les vues et modales avant chargement complet ;
+- restauration des variables CSS manquantes utilisées par certaines cartes ;
+- stabilisation de la recherche globale ;
+- conservation de la configuration Firebase active ;
+- conservation de la carte OSM stable sans Leaflet ;
+- vérification que tous les fichiers appelés par `index.html` existent.
+
+## Déploiement conseillé
+
+1. Supprimer l’ancien contenu du dépôt GitHub Pages.
+2. Copier tout le contenu de cette archive.
+3. Publier / pousser sur GitHub.
+4. Attendre quelques minutes.
+5. Ouvrir le site en navigation privée ou vider le cache du navigateur.
 
 ## Fichiers importants
 
@@ -22,49 +30,30 @@ Cette version ajoute une vraie page **Communauté** :
 index.html
 css/style.css
 js/app.js
+js/firebase-config.js
 js/firebase-sync.js
 js/storage.js
+js/map.js
+js/utils.js
 firestore.rules
 ```
 
-Le projet conserve le vrai fichier :
+## Firebase
 
-```text
-js/firebase-config.js
-```
+Le fichier `js/firebase-config.js` contient la configuration active du projet Firebase `travel-planner-60337`.
 
+À vérifier dans Firebase :
 
-## Firestore
+1. Authentication → Google activé.
+2. Authorized domains contient `stoxor-web.github.io`, `localhost` et `127.0.0.1`.
+3. Firestore Rules contient le contenu de `firestore.rules`.
 
-Copie le contenu de `firestore.rules` dans :
+## Communauté
 
-**Firebase Console → Firestore Database → Rules**
-
-Les règles ajoutent la collection :
+La page Communauté utilise la collection Firestore :
 
 ```text
 communityTrips
 ```
 
-Elle est lisible publiquement, mais la création, le vote, la modification et la suppression restent encadrés par Firebase Authentication.
-
-## Déploiement GitHub Pages
-
-Remplace tout le contenu de ton dépôt par le contenu du ZIP, puis attends quelques minutes que GitHub Pages publie la nouvelle version. En cas d’ancien rendu, ouvre le site en navigation privée ou vide le cache du navigateur.
-
-
-## Version Firebase verrouillée
-
-Cette archive est prête à l’emploi avec la configuration Firebase du projet `travel-planner-60337`.
-
-- Le fichier actif est `js/firebase-config.js`.
-- Aucun fichier `firebase-config.example` ne doit être ajouté.
-- La connexion Google reste disponible en permanence.
-- Les voyages sont chargés et sauvegardés dans Firestore après connexion.
-- Si une nouvelle version est générée, elle doit conserver ce fichier Firebase actif.
-
-Après mise en ligne, vérifier dans Firebase :
-
-1. Authentication > Google activé.
-2. Authorized domains contient `stoxor-web.github.io`.
-3. Firestore Rules contient les règles du fichier `firestore.rules`.
+Elle est lisible publiquement. La publication, le vote, la modification et la suppression restent encadrés par Firebase Authentication.
