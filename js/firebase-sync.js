@@ -36,6 +36,7 @@
 
   function providerLabel(user = currentUser) {
     const provider = user?.providerData?.[0]?.providerId || '';
+    if (user?.isAnonymous) return 'invité anonyme';
     if (provider.includes('password')) return 'e-mail';
     if (provider.includes('google')) return 'Google';
     return user ? 'Firebase' : '';
@@ -93,7 +94,7 @@
       authM.onAuthStateChanged(auth, user => {
         currentUser = user;
         status = user
-          ? `Connecté avec ${user.email || user.displayName || 'un compte Firebase'}.`
+          ? (user.isAnonymous ? 'Connecté en mode invité.' : `Connecté avec ${user.email || user.displayName || 'un compte Firebase'}.`)
           : 'Connexion requise.';
         authReadyResolve?.(user);
         emit();
@@ -128,6 +129,21 @@
         await authM.signInWithRedirect(auth, provider);
         return null;
       }
+      throw normalizeAuthError(error);
+    }
+  }
+
+
+  async function signInAnonymously() {
+    const { auth } = await init();
+    const { authM } = await loadModules();
+    try {
+      const result = await authM.signInAnonymously(auth);
+      currentUser = result.user;
+      status = 'Connexion invitée réussie.';
+      emit();
+      return currentUser;
+    } catch (error) {
       throw normalizeAuthError(error);
     }
   }
@@ -194,6 +210,7 @@
       'auth/wrong-password': 'Mot de passe incorrect.',
       'auth/too-many-requests': 'Trop de tentatives. Réessaie plus tard.',
       'auth/operation-not-allowed': 'Ce mode de connexion n’est pas activé dans Firebase.',
+      'auth/admin-restricted-operation': 'La connexion anonyme n’est pas activée dans Firebase Authentication.',
       'auth/unauthorized-domain': 'Ce domaine n’est pas autorisé dans Firebase Authentication.'
     };
     return new Error(messages[code] || error?.message || 'Connexion impossible.');
@@ -381,6 +398,7 @@
     init,
     waitForAuthState,
     signIn,
+    signInAnonymously,
     signInWithEmail,
     registerWithEmail,
     resetPassword,

@@ -90,6 +90,7 @@
     on('settingsForm', 'submit', event => { event.preventDefault(); saveSettings(); });
     on('addStepBtn', 'click', () => openStepDialog());
     on('stepForm', 'submit', saveStepForm);
+    on('geocodeBtn', 'click', runStepGeocode);
     on('addExpenseBtn', 'click', () => openExpenseDialog());
     on('expenseForm', 'submit', saveExpenseForm);
     on('fitMapBtn', 'click', MapView.fitBounds);
@@ -156,7 +157,7 @@
   function requireCloudReady() {
     if (appReady && CloudSync?.getUser()) return true;
     switchView('dashboard');
-    showStatus('Connecte-toi avec Google ou e-mail pour utiliser le planificateur.');
+    showStatus('Connecte-toi avec Google, e-mail ou invité pour utiliser le planificateur.');
     return false;
   }
 
@@ -203,12 +204,16 @@
         <div class="login-gate">
           <div class="login-gate__icon">☁️</div>
           <h2>Connexion requise</h2>
-          <p>Tes voyages sont synchronisés dans Firebase. Connecte-toi avec Google ou avec ton adresse e-mail.</p>
-          <button class="button button--primary" id="dashboardSignInBtn">Choisir un mode de connexion</button>
-          <small>Le site n’utilise plus de sauvegarde locale de voyages ni d’export JSON.</small>
+          <p>Tes voyages sont synchronisés dans Firebase. Connecte-toi avec Google, e-mail ou en mode invité.</p>
+          <div class="button-row">
+            <button class="button button--primary" id="dashboardSignInBtn">Choisir un mode de connexion</button>
+            <button class="button" id="dashboardGuestBtn">Entrer en invité</button>
+          </div>
+          <small>Google, e-mail ou accès invité anonyme avec sauvegarde Firebase.</small>
         </div>
       `;
       document.getElementById('dashboardSignInBtn')?.addEventListener('click', () => switchView('settings'));
+      document.getElementById('dashboardGuestBtn')?.addEventListener('click', handleAnonymousSignIn);
       return;
     }
 
@@ -546,6 +551,54 @@
     list.querySelectorAll('[data-edit-step]').forEach(button => button.addEventListener('click', () => openStepDialog(button.dataset.editStep)));
     list.querySelectorAll('[data-delete-step]').forEach(button => button.addEventListener('click', () => deleteStep(button.dataset.deleteStep)));
     list.querySelectorAll('[data-move-step]').forEach(button => button.addEventListener('click', () => moveStep(button.dataset.stepId, button.dataset.moveStep)));
+  }
+
+
+  async function runStepGeocode() {
+    const form = document.getElementById('stepForm');
+    const box = document.getElementById('geocodeResults');
+    const query = form?.elements.search?.value || '';
+    if (!form || !box) return;
+    if (!window.TravelGeocoder) {
+      box.innerHTML = '<div class="empty-state">Recherche de lieu indisponible.</div>';
+      return;
+    }
+    if (query.trim().length < 3) {
+      box.innerHTML = '<div class="empty-state">Indique au moins 3 caractères.</div>';
+      return;
+    }
+    box.hidden = false;
+    box.innerHTML = '<div class="empty-state">Recherche…</div>';
+    try {
+      const results = await window.TravelGeocoder.search(query, { limit: 6 });
+      if (!results.length) {
+        box.innerHTML = '<div class="empty-state">Aucun lieu trouvé.</div>';
+        return;
+      }
+      box.innerHTML = results.map((item, index) => `
+        <button type="button" class="place-result" data-geo-index="${index}">
+          <strong>${U.escapeHtml(item.name)}</strong>
+          <small>${U.escapeHtml(item.address || item.displayName || '')}</small>
+          <span>${U.escapeHtml(item.type)} · ${item.lat.toFixed(5)}, ${item.lng.toFixed(5)}</span>
+        </button>
+      `).join('');
+      box.querySelectorAll('[data-geo-index]').forEach(button => {
+        button.addEventListener('click', () => {
+          const item = results[Number(button.dataset.geoIndex)];
+          if (!item) return;
+          form.elements.name.value = item.name || '';
+          form.elements.address.value = item.address || item.displayName || '';
+          form.elements.lat.value = item.lat;
+          form.elements.lng.value = item.lng;
+          if ([...form.elements.type.options].some(opt => opt.value === item.type)) form.elements.type.value = item.type;
+          box.innerHTML = '';
+          box.hidden = true;
+          showStatus('Lieu ajouté au formulaire.');
+        });
+      });
+    } catch (error) {
+      box.innerHTML = `<div class="empty-state">${U.escapeHtml(error.message || 'Recherche impossible.')}</div>`;
+    }
   }
 
   function openStepDialog(stepId = null) {
@@ -900,6 +953,7 @@
     };
     bind('cloudAuthBtn', handleCloudAuth);
     bind('cloudSignInBtn', handleCloudSignIn);
+    bind('cloudAnonymousSignInBtn', handleAnonymousSignIn);
     bind('cloudEmailRegisterBtn', handleEmailRegister);
     bind('cloudEmailResetBtn', handlePasswordReset);
     bind('cloudSignOutBtn', handleCloudSignOut);
@@ -998,34 +1052,34 @@
     const signInBtn = document.getElementById('cloudSignInBtn');
     const signOutBtn = document.getElementById('cloudSignOutBtn');
     const emailForm = document.getElementById('emailLoginForm');
-    const emailInputs = ['emailAuthEmail', 'emailAuthPassword', 'cloudEmailRegisterBtn', 'cloudEmailResetBtn'];
+    const emailInputs = ['emailAuthEmail', 'emailAuthPassword', 'cloudEmailRegisterBtn', 'cloudEmailResetBtn', 'cloudAnonymousSignInBtn'];
     const deleteCloudBtn = document.getElementById('deleteCloudDataBtn');
     const syncMeta = document.getElementById('cloudSyncMeta');
     const protectedControls = ['newTripBtn', 'createFirstTripBtn', 'loadDemoBtn', 'tripSelector', 'saveSettingsBtn'];
 
     document.body.classList.toggle('is-cloud-locked', !appReady || !user);
 
-    if (statusEl) statusEl.textContent = status || (configured ? 'Connexion requise.' : 'Firebase non configuré.');
+    if (statusEl) statusEl.textContent = status || (configured ? 'Choisis Google, e-mail ou invité.' : 'Firebase non configuré.');
     if (profile) profile.hidden = !user;
     if (avatar) {
       if (user?.photoURL) {
         avatar.innerHTML = `<img src="${U.escapeHtml(user.photoURL)}" alt="" />`;
       } else {
-        avatar.textContent = (user?.email || user?.displayName || 'U').slice(0, 1).toUpperCase();
+        avatar.textContent = user?.isAnonymous ? 'I' : (user?.email || user?.displayName || 'U').slice(0, 1).toUpperCase();
       }
     }
-    if (name && user) name.textContent = user.displayName || user.email?.split('@')[0] || 'Compte utilisateur';
-    if (email && user) email.textContent = user.email || '';
-    if (providerEl) providerEl.textContent = user ? `Connexion : ${provider || 'Firebase'}` : 'Google ou e-mail';
+    if (name && user) name.textContent = user.isAnonymous ? 'Compte invité' : (user.displayName || user.email?.split('@')[0] || 'Compte utilisateur');
+    if (email && user) email.textContent = user.isAnonymous ? 'Connexion anonyme Firebase' : (user.email || '');
+    if (providerEl) providerEl.textContent = user ? `Connexion : ${provider || 'Firebase'}` : 'Google, e-mail ou invité';
 
     if (topButton) {
       topButton.classList.toggle('is-connected', Boolean(user));
       if (user) {
-        const label = user.displayName || user.email?.split('@')[0] || 'Connecté';
+        const label = user.isAnonymous ? 'Invité' : (user.displayName || user.email?.split('@')[0] || 'Connecté');
         const picture = user.photoURL ? `<img src="${U.escapeHtml(user.photoURL)}" alt="" />` : U.escapeHtml(label.slice(0, 1).toUpperCase());
         topButton.innerHTML = `<span class="auth-avatar">${picture}</span><span class="auth-copy"><strong>Connecté</strong><small>${U.escapeHtml(label)}</small></span>`;
       } else {
-        topButton.innerHTML = '<span class="auth-avatar">↗</span><span class="auth-copy"><strong>Connexion</strong><small>Google ou e-mail</small></span>';
+        topButton.innerHTML = '<span class="auth-avatar">↗</span><span class="auth-copy"><strong>Connexion</strong><small>Google, e-mail ou invité</small></span>';
       }
     }
 
@@ -1055,7 +1109,7 @@
       return;
     }
     switchView('settings');
-    showStatus(CloudSync.getUser() ? 'Compte connecté.' : 'Choisis Google ou e-mail pour te connecter.');
+    showStatus(CloudSync.getUser() ? 'Compte connecté.' : 'Choisis Google, e-mail ou invité pour te connecter.');
   }
 
   async function handleCloudSignIn() {
@@ -1068,6 +1122,22 @@
       console.error(error);
       cloudLoading = false;
       showStatus(error.message || 'Connexion Google impossible.');
+      updateCloudUi({ status: error.message });
+      renderAll();
+    }
+  }
+
+
+  async function handleAnonymousSignIn() {
+    try {
+      cloudLoading = true;
+      renderAll();
+      await CloudSync.signInAnonymously();
+      updateCloudUi();
+    } catch (error) {
+      console.error(error);
+      cloudLoading = false;
+      showStatus(error.message || 'Connexion invitée impossible. Vérifie que le fournisseur Anonyme est activé dans Firebase.');
       updateCloudUi({ status: error.message });
       renderAll();
     }
