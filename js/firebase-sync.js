@@ -307,7 +307,7 @@
       updatedAt: firestoreModule.serverTimestamp()
     }));
     doc.updatedAt = firestoreModule.serverTimestamp();
-    await firestoreModule.setDoc(ref, doc, { merge: true });
+    await firestoreModule.setDoc(ref, doc);
     return { ...doc, updatedAt: nowIso };
   }
 

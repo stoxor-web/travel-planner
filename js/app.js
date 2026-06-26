@@ -19,6 +19,7 @@
   let communityTrips = [];
   let communityLoading = false;
   let communityLoaded = false;
+  let communityError = '';
 
   const titles = {
     dashboard: 'Tableau de bord',
@@ -36,7 +37,7 @@
 
   const $ = selector => document.querySelector(selector);
   const $$ = selector => [...document.querySelectorAll(selector)];
-  const APP_VERSION = 'V4.9 Premium';
+  const APP_VERSION = 'V4.10 UI & Partage';
   const ADMIN_EMAIL = 'lucas.scribe01@gmail.com';
 
   function init() {
@@ -521,6 +522,12 @@
       grid.innerHTML = '<div class="empty-state">Firebase doit être configuré pour afficher la communauté.</div>';
       return;
     }
+    if (communityError) {
+      grid.innerHTML = `<div class="empty-state empty-state--error"><strong>Communauté indisponible</strong><span>${U.escapeHtml(communityError)}</span><button class="button" id="communityRetryBtn">Réessayer</button></div>`;
+      const retry = document.getElementById('communityRetryBtn');
+      if (retry) retry.addEventListener('click', () => loadCommunityTrips(true));
+      return;
+    }
 
     let list = [...communityTrips];
     const search = (searchInput?.value || '').trim().toLowerCase();
@@ -619,6 +626,7 @@
       return;
     }
     communityLoading = true;
+    communityError = '';
     renderCommunity();
     try {
       await CloudSync.init();
@@ -626,7 +634,10 @@
       communityLoaded = true;
     } catch (error) {
       console.error(error);
-      showStatus(error.message || 'Impossible de charger la communauté.');
+      communityTrips = [];
+      communityLoaded = true;
+      communityError = error.message || 'Impossible de charger la communauté. Vérifie les règles Firestore et la connexion.';
+      showStatus(communityError);
     } finally {
       communityLoading = false;
       renderCommunity();
@@ -638,13 +649,16 @@
     const trip = activeTrip();
     if (!trip) return showStatus('Crée ou sélectionne un voyage à partager.');
     const form = $('#communityPublishForm');
+    if (!form) return showStatus('Formulaire de publication introuvable.');
     form.reset();
     form.elements.title.value = trip.name || '';
     form.elements.country.value = trip.area || '';
     form.elements.category.value = inferCommunityCategory(trip);
     form.elements.coverImage.value = trip.coverImage || '';
     form.elements.description.value = trip.description || '';
-    $('#communityPublishDialog').showModal();
+    const dialog = $('#communityPublishDialog');
+    if (dialog?.showModal) dialog.showModal();
+    else showStatus('Ton navigateur ne peut pas ouvrir la fenêtre de publication.');
   }
 
   function buildCommunityPayload(trip, form) {
@@ -721,18 +735,35 @@
     event.preventDefault();
     if (!requireCloudReady()) return;
     const trip = activeTrip();
-    if (!trip) return;
+    if (!trip) return showStatus('Sélectionne un voyage avant de publier.');
+    const form = event.currentTarget;
+    const submit = form.querySelector('button[type="submit"]');
+    if (submit) {
+      submit.disabled = true;
+      submit.textContent = 'Publication…';
+    }
     try {
       await flushCloudAutosave();
-      const doc = await CloudSync.publishCommunityTrip(buildCommunityPayload(trip, event.currentTarget));
-      $('#communityPublishDialog').close();
+      const payload = buildCommunityPayload(trip, form);
+      const doc = await CloudSync.publishCommunityTrip(payload);
+      const dialog = $('#communityPublishDialog');
+      if (dialog?.open) dialog.close();
       communityLoaded = false;
+      communityError = '';
       await loadCommunityTrips(true);
       switchView('community');
       showStatus(`Voyage publié dans la communauté : ${doc.title}.`);
     } catch (error) {
       console.error(error);
-      showStatus(error.message || 'Publication impossible.');
+      const message = /permission|insufficient|denied/i.test(error.message || '')
+        ? 'Publication bloquée par les règles Firestore. Copie les règles fournies dans Firebase puis réessaie.'
+        : (error.message || 'Publication impossible.');
+      showStatus(message);
+    } finally {
+      if (submit) {
+        submit.disabled = false;
+        submit.textContent = 'Publier dans la communauté';
+      }
     }
   }
 
@@ -1671,7 +1702,7 @@
     applyTheme(state.settings.theme || 'light');
     renderAll();
     updateCloudUi({ user, status: CloudSync.getStatus(), configured: true });
-    showStatus('Voyages chargés depuis Firebase. Sauvegarde automatique active.');
+    showStatus('Connecté. Sauvegarde automatique active.');
   }
 
   function updateCloudUi(payload = {}) {
@@ -1700,13 +1731,16 @@
     if (email && user) email.textContent = user.email || '';
     if (topButton) {
       topButton.classList.toggle('is-connected', Boolean(user));
-      topButton.innerHTML = user
-        ? `<span class="cloud-dot"></span><span>Connecté</span>`
-        : `<span class="cloud-dot"></span><span>Connexion Google</span>`;
+      const photo = user?.photoURL ? `<img class="auth-pill__avatar" src="${escapeAttr(user.photoURL)}" alt="" />` : '<span class="cloud-dot" aria-hidden="true"></span>';
+      const label = user ? 'Connecté' : 'Connexion Google';
+      topButton.innerHTML = `${photo}<span class="auth-pill__text">${label}</span>`;
+      topButton.title = user ? `Connecté : ${user.email || user.displayName || 'compte Google'}` : 'Connexion Google';
     }
     if (signInBtn) {
       signInBtn.disabled = !configured || Boolean(user);
-      signInBtn.textContent = user ? 'Connecté avec Google' : 'Se connecter avec Google';
+      signInBtn.innerHTML = user
+        ? '<span class="google-mark">✓</span><span>Connecté avec Google</span>'
+        : '<span class="google-mark">G</span><span>Se connecter avec Google</span>';
     }
     if (signOutBtn) signOutBtn.disabled = !user;
     if (deleteCloudBtn) deleteCloudBtn.disabled = !user || !appReady;
