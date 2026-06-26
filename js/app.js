@@ -22,6 +22,7 @@
 
   const titles = {
     dashboard: 'Tableau de bord',
+    today: 'Aujourd’hui',
     community: 'Communauté',
     trip: 'Créer ou modifier un voyage',
     map: 'Carte du voyage',
@@ -35,6 +36,8 @@
 
   const $ = selector => document.querySelector(selector);
   const $$ = selector => [...document.querySelectorAll(selector)];
+  const APP_VERSION = 'V4.9 Premium';
+  const ADMIN_EMAIL = 'lucas.scribe01@gmail.com';
 
   function init() {
     populateStaticSelects();
@@ -113,11 +116,16 @@
     on('fabAddStep', 'click', () => { closeFabMenu(); openStepDialog(); });
     on('fabAddExpense', 'click', () => { closeFabMenu(); openExpenseDialog(); });
     on('fabOpenChecklist', 'click', () => { closeFabMenu(); switchView('preparation'); });
+    on('fabOpenToday', 'click', () => { closeFabMenu(); switchView('today'); });
+    on('todayAddStepBtn', 'click', () => openStepDialog(null, new Date().toISOString().slice(0, 10)));
+    on('todayAddExpenseBtn', 'click', () => openExpenseDialog());
+    on('todayOpenMapBtn', 'click', () => switchView('map'));
+    on('todayOpenPlanningBtn', 'click', () => switchView('itinerary'));
     on('globalSearchInput', 'input', renderGlobalSearch);
     on('globalSearchInput', 'focus', renderGlobalSearch);
     document.addEventListener('click', event => {
       if (!event.target.closest('.global-search')) hideGlobalSearch();
-      if (!event.target.closest('.fab')) closeFabMenu();
+      if (!event.target.closest('.fab-wrap')) closeFabMenu();
     });
     bindShareActions();
     bindPlaceSearch();
@@ -138,6 +146,7 @@
     $$('.view').forEach(section => section.classList.toggle('is-visible', section.id === `view-${view}`));
     $$('.nav-item').forEach(item => item.classList.toggle('is-active', item.dataset.viewLink === view));
     $('#pageTitle').textContent = titles[view];
+    if (view === 'today') renderToday();
     if (view === 'map') {
       MapView.initMap();
       renderMap();
@@ -152,6 +161,7 @@
   function renderAll() {
     renderTripSelector();
     renderDashboard();
+    renderToday();
     renderTripTemplates();
     renderCommunity();
     renderTripForm();
@@ -308,7 +318,8 @@
             <h3>${next ? U.escapeHtml(next.title) : 'Prêt à partir'}</h3>
             <p>${next ? U.escapeHtml(next.meta) : 'Ajoute des étapes datées pour obtenir une consultation rapide pendant le séjour.'}</p>
             <div class="button-row">
-              <button class="button button--primary" data-open-view="itinerary">Voir le planning</button>
+              <button class="button button--primary" data-open-view="today">Mode aujourd’hui</button>
+              <button class="button" data-open-view="itinerary">Planning</button>
               <button class="button" data-open-view="budget">Dépense rapide</button>
               <button class="button" data-open-view="map">Carte</button>
             </div>
@@ -362,6 +373,94 @@
   }
 
 
+  function renderToday() {
+    const hero = $('#todayHero');
+    const side = $('#todayQuickActions');
+    const timeline = $('#todayTimeline');
+    if (!hero || !side || !timeline) return;
+    const trip = activeTrip();
+    if (!trip) {
+      hero.innerHTML = '<div class="empty-state">Sélectionne un voyage pour activer le mode Aujourd’hui.</div>';
+      side.innerHTML = '';
+      timeline.innerHTML = '';
+      return;
+    }
+    const data = getTodayTravelData(trip);
+    const budget = Budget.computeBudget(trip);
+    const alert = Suggestions.evaluate(trip, state.settings).items.find(item => item.level === 'danger' || item.level === 'warning');
+    const cover = trip.coverImage ? `style="background-image:linear-gradient(120deg,rgba(5,18,38,.84),rgba(12,118,110,.34)),url('${escapeAttr(trip.coverImage)}')"` : '';
+    hero.innerHTML = `
+      <div class="today-hero__cover" ${cover}>
+        <span class="badge badge--glass">${U.escapeHtml(trip.status || 'prévu')}</span>
+        <h2>${U.escapeHtml(trip.name)}</h2>
+        <p>${U.escapeHtml(trip.area || 'Destination à préciser')} · ${getTripDurationDays(trip) || 1} jour(s)</p>
+      </div>
+      <div class="today-hero__body">
+        <p class="eyebrow">Mode voyage</p>
+        <h3>${data.currentLabel}</h3>
+        <div class="today-next-card">
+          <small>Prochaine étape</small>
+          <strong>${data.next ? U.escapeHtml(data.next.name) : 'Aucune étape datée'}</strong>
+          <span>${data.next ? formatStepDateTime(data.next) : 'Ajoute des dates et horaires au planning.'}</span>
+          ${data.next?.address ? `<a href="${openMapUrl(data.next)}" target="_blank" rel="noreferrer">Ouvrir l’adresse</a>` : ''}
+        </div>
+      </div>`;
+    side.innerHTML = `
+      <div class="today-actions-head"><strong>Actions rapides</strong><small>Utile pendant le voyage</small></div>
+      <div class="today-actions-grid">
+        <button class="button button--primary" id="todayAddExpenseBtn">+ Dépense</button>
+        <button class="button" id="todayAddStepBtn">+ Étape</button>
+        <button class="button" id="todayOpenPlanningBtn">Planning</button>
+        <button class="button" id="todayOpenMapBtn">Carte</button>
+      </div>
+      <div class="today-mini-metrics">
+        <article><span>Budget prévu</span><strong>${U.formatMoney(budget.plannedTotal, trip.currency)}</strong></article>
+        <article><span>Réel saisi</span><strong>${U.formatMoney(budget.actualTotal, trip.currency)}</strong></article>
+        <article><span>Alertes</span><strong>${Suggestions.evaluate(trip, state.settings).items.filter(item => item.level !== 'success').length}</strong></article>
+      </div>
+      ${alert ? `<div class="today-alert"><strong>À vérifier</strong><p>${U.escapeHtml(alert.message)}</p></div>` : `<div class="today-alert today-alert--ok"><strong>Tout semble cohérent</strong><p>Aucune alerte prioritaire pour le moment.</p></div>`}`;
+    const steps = data.todaySteps.length ? data.todaySteps : U.sortSteps(trip.steps || []).slice(0, 6);
+    timeline.innerHTML = `
+      <div class="panel__header"><div><p class="eyebrow">Consultation rapide</p><h2>${data.todaySteps.length ? 'Programme du jour' : 'Prochaines étapes'}</h2></div></div>
+      <div class="today-list">
+        ${steps.length ? steps.map(step => `
+          <article class="today-item">
+            <span class="today-time">${[step.arrivalTime, step.departureTime ? `→ ${step.departureTime}` : ''].filter(Boolean).join(' ') || 'Horaire à préciser'}</span>
+            <div><strong>${U.escapeHtml(step.name)}</strong><p>${U.escapeHtml(step.type || 'étape')} · ${step.address ? U.escapeHtml(step.address) : 'adresse à compléter'}</p></div>
+            <button class="button" data-today-edit="${step.id}">Modifier</button>
+          </article>
+        `).join('') : '<div class="empty-state">Aucune étape. Ajoute ton premier lieu.</div>'}
+      </div>`;
+    timeline.querySelectorAll('[data-today-edit]').forEach(button => button.addEventListener('click', () => openStepDialog(button.dataset.todayEdit)));
+    ['todayAddExpenseBtn','todayAddStepBtn','todayOpenPlanningBtn','todayOpenMapBtn'].forEach(id => {
+      const old = document.getElementById(id);
+      if (!old) return;
+      if (id === 'todayAddExpenseBtn') old.addEventListener('click', () => openExpenseDialog());
+      if (id === 'todayAddStepBtn') old.addEventListener('click', () => openStepDialog(null, new Date().toISOString().slice(0,10)));
+      if (id === 'todayOpenPlanningBtn') old.addEventListener('click', () => switchView('itinerary'));
+      if (id === 'todayOpenMapBtn') old.addEventListener('click', () => switchView('map'));
+    });
+  }
+
+  function getTodayTravelData(trip) {
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const steps = U.sortSteps(trip?.steps || []);
+    const todaySteps = steps.filter(step => (step.arrivalDate || step.departureDate) === todayKey);
+    const next = todaySteps[0] || steps.find(step => (step.arrivalDate || '') >= todayKey) || steps[0] || null;
+    const currentLabel = todaySteps.length ? `Aujourd’hui · ${todaySteps.length} étape(s)` : (next ? 'Prochaine étape à préparer' : 'Aucun programme');
+    return { todayKey, todaySteps, next, currentLabel };
+  }
+
+  function formatStepDateTime(step) {
+    return [step.arrivalDate ? U.formatDate(step.arrivalDate) : '', step.arrivalTime || '', step.departureTime ? `départ ${step.departureTime}` : ''].filter(Boolean).join(' · ');
+  }
+
+  function openMapUrl(step) {
+    if (U.isValidCoord(step)) return `https://www.openstreetmap.org/?mlat=${Number(step.lat)}&mlon=${Number(step.lng)}#map=15/${Number(step.lat)}/${Number(step.lng)}`;
+    return `https://www.openstreetmap.org/search?query=${encodeURIComponent(step.address || step.name || '')}`;
+  }
+
+
   function escapeAttr(value) {
     return U.escapeHtml(String(value || '')).replace(/"/g, '&quot;');
   }
@@ -388,10 +487,18 @@
     return 'citybreak';
   }
 
+
+  function isCommunityAdmin() {
+    const email = (CloudSync?.getUser()?.email || '').toLowerCase();
+    return email === ADMIN_EMAIL.toLowerCase();
+  }
+
+
   function renderCommunity() {
     const grid = $('#communityGrid');
     if (!grid) return;
     const stats = $('#communityStats');
+    const adminPanel = $('#communityAdminPanel');
     const countryFilter = $('#communityCountryFilter');
     const categoryFilter = $('#communityCategoryFilter');
     const sortFilter = $('#communitySortFilter');
@@ -437,12 +544,18 @@
 
     const totalVotes = communityTrips.reduce((sum, item) => sum + (Number(item.upVotes) || 0) + (Number(item.downVotes) || 0), 0);
     if (stats) {
+      const topCountry = countries[0] || '—';
       stats.innerHTML = `
         <article class="stat-card"><span>Voyages publics</span><strong>${communityTrips.length}</strong></article>
         <article class="stat-card"><span>Pays / zones</span><strong>${countries.length}</strong></article>
         <article class="stat-card"><span>Votes</span><strong>${totalVotes}</strong></article>
         <article class="stat-card"><span>Résultats affichés</span><strong>${list.length}</strong></article>
       `;
+    }
+    if (adminPanel) {
+      const admin = isCommunityAdmin();
+      adminPanel.hidden = !admin;
+      adminPanel.innerHTML = admin ? `<div class="admin-strip"><strong>Mode admin Lucas S.</strong><span>Tu peux retirer une publication de la communauté si elle est inadaptée.</span><span>${communityTrips.length} publication(s) surveillée(s)</span></div>` : '';
     }
 
     if (!communityLoaded && !communityTrips.length) {
@@ -459,6 +572,7 @@
       const userVote = user && item.votes ? Number(item.votes[user.uid]) || 0 : 0;
       const canCopy = item.allowCopy !== false && item.trip;
       const owner = user && item.ownerUid === user.uid;
+      const admin = isCommunityAdmin();
       const budgetText = item.hideBudget ? 'Budget masqué' : `${U.formatMoney(item.publicBudget || 0, item.currency || '€')} estimé`;
       const highlights = (item.highlights || []).slice(0, 4).map(step => `<span>${U.escapeHtml(step)}</span>`).join('');
       const cover = item.coverImage ? `style="background-image:linear-gradient(180deg,rgba(7,23,57,.12),rgba(7,23,57,.72)),url('${escapeAttr(item.coverImage)}')"` : '';
@@ -487,7 +601,7 @@
               <button class="button ${userVote === 1 ? 'button--primary' : ''}" data-community-vote="1" data-community-id="${item.id}">+ Tendance</button>
               <button class="button ${userVote === -1 ? 'button--danger' : ''}" data-community-vote="-1" data-community-id="${item.id}">-</button>
               <button class="button" data-community-copy="${item.id}" ${canCopy ? '' : 'disabled'}>Copier</button>
-              ${owner ? `<button class="button button--danger" data-community-delete="${item.id}">Retirer</button>` : ''}
+              ${owner || admin ? `<button class="button button--danger" data-community-delete="${item.id}">${admin && !owner ? 'Admin retirer' : 'Retirer'}</button>` : ''}
             </div>
           </div>
         </article>
@@ -1021,8 +1135,66 @@
   }
 
   function renderSuggestions() {
-    Suggestions.render($('#scorePanel'), $('#suggestionsList'), activeTrip(), state.settings);
+    Suggestions.render($('#scorePanel'), $('#suggestionsList'), activeTrip(), state.settings, { onFix: applySuggestionFix });
   }
+
+  function applySuggestionFix(action) {
+    if (!requireCloudReady()) return;
+    const trip = activeTrip();
+    if (!trip || !action) return;
+    trip.checklists ||= U.createDefaultChecklists();
+    trip.expenses ||= [];
+    const addTask = (listName, text) => {
+      trip.checklists[listName] ||= [];
+      if (!trip.checklists[listName].some(item => String(item.text || '').toLowerCase() === text.toLowerCase())) {
+        trip.checklists[listName].push({ id: U.uid('todo'), text, done: false });
+      }
+    };
+    if (action === 'budget-basics') {
+      ['transport','logement','nourriture'].forEach(category => {
+        if (!trip.expenses.some(expense => expense.category === category)) {
+          trip.expenses.push({ id: U.uid('expense'), label: `Budget ${category}`, category, plannedAmount: 0, actualAmount: 0, amount: 0, status: 'prévue', date: '', paidBy: '', splitBetween: Budget.travellerNames(trip), note: 'Ajouté automatiquement depuis l’assistant.' });
+        }
+      });
+      persist('Postes de budget ajoutés.');
+      switchView('budget');
+      return;
+    }
+    if (action === 'airport-task') {
+      addTask('avion', 'Vérifier numéro de vol, terminal et marge avant départ');
+      addTask('transferts', 'Prévoir le transfert aéroport ↔ logement');
+      persist('Tâches aéroport ajoutées.');
+      switchView('preparation');
+      return;
+    }
+    if (action === 'hotel-task') {
+      addTask('logement', 'Ajouter ou vérifier les hébergements de chaque nuit');
+      persist('Tâche logement ajoutée.');
+      switchView('preparation');
+      return;
+    }
+    if (action === 'prep-task') {
+      addTask('avant départ', 'Vérifier les documents, réservations, budget et transports');
+      persist('Tâche de préparation ajoutée.');
+      switchView('preparation');
+      return;
+    }
+    if (action === 'time-check') {
+      addTask('planning', 'Vérifier les horaires incohérents ou trop serrés');
+      persist('Tâche horaire ajoutée.');
+      switchView('itinerary');
+      return;
+    }
+    if (action === 'comfort-transfer') {
+      addTask('transferts', 'Ajouter les horaires et notes de transfert pour les trajets importants');
+      persist('Tâche transfert ajoutée.');
+      switchView('preparation');
+      return;
+    }
+    addTask('avant départ', 'Vérifier : ' + action);
+    persist('Tâche ajoutée.');
+  }
+
 
   async function optimizeActiveTrip() {
     if (!requireCloudReady()) return;

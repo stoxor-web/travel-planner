@@ -73,6 +73,7 @@
       if (balances[expense.paidBy]) balances[expense.paidBy].paid += amount;
     });
     Object.values(balances).forEach(row => { row.balance = row.paid - row.share; });
+    const settlements = computeSettlements(balances);
 
     return {
       total,
@@ -91,10 +92,36 @@
       byStatus,
       byDay,
       balances,
+      settlements,
       names,
       days,
       travellers
     };
+  }
+
+
+  function computeSettlements(balances) {
+    const debtors = [];
+    const creditors = [];
+    Object.entries(balances || {}).forEach(([name, row]) => {
+      const value = Number(row.balance) || 0;
+      if (value < -0.01) debtors.push({ name, amount: -value });
+      if (value > 0.01) creditors.push({ name, amount: value });
+    });
+    debtors.sort((a, b) => b.amount - a.amount);
+    creditors.sort((a, b) => b.amount - a.amount);
+    const moves = [];
+    let i = 0;
+    let j = 0;
+    while (i < debtors.length && j < creditors.length) {
+      const amount = Math.min(debtors[i].amount, creditors[j].amount);
+      if (amount > 0.01) moves.push({ from: debtors[i].name, to: creditors[j].name, amount });
+      debtors[i].amount -= amount;
+      creditors[j].amount -= amount;
+      if (debtors[i].amount <= 0.01) i += 1;
+      if (creditors[j].amount <= 0.01) j += 1;
+    }
+    return moves;
   }
 
   function renderStats(container, trip) {
@@ -140,11 +167,15 @@
             const row = budget.balances[name] || { paid: 0, share: budget.perPerson, balance: 0 };
             return `<article>
               <strong>${escapeHtml(name)}</strong>
-              <span>Part estimée : ${formatMoney(row.share || budget.perPerson, currency)}</span>
-              <span>Payé : ${formatMoney(row.paid || 0, currency)}</span>
+              <span>Part calculée : ${formatMoney(row.share || budget.perPerson, currency)}</span>
+              <span>Déjà payé : ${formatMoney(row.paid || 0, currency)}</span>
               <em class="${row.balance >= 0 ? 'positive' : 'negative'}">${row.balance >= 0 ? 'À recevoir' : 'À verser'} : ${formatMoney(Math.abs(row.balance || 0), currency)}</em>
             </article>`;
           }).join('')}
+        </div>
+        <div class="settlement-box">
+          <strong>Équilibrage type TriCount</strong>
+          ${budget.settlements.length ? budget.settlements.map(move => `<p>${escapeHtml(move.from)} doit ${formatMoney(move.amount, currency)} à ${escapeHtml(move.to)}</p>`).join('') : '<p>Aucun remboursement nécessaire pour le moment.</p>'}
         </div>
       </div>
     `;
