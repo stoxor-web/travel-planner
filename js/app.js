@@ -8,26 +8,24 @@
   const Suggestions = window.TravelSuggestions;
   const MapView = window.TravelMap;
   const CloudSync = window.TravelCloudSync;
+  const Geocoder = window.TravelGeocoder;
 
   let state = Storage.load();
-  let cloudAutosaveTimer = null;
-  let cloudLastSavedAt = '';
-  let loadedCloudUid = null;
   let appReady = false;
   let cloudLoading = true;
+  let cloudLastSavedAt = '';
+  let loadedCloudUid = null;
   let currentView = 'dashboard';
+  let autosaveTimer = null;
   let communityTrips = [];
-  let communityLoading = false;
-  let communityLoaded = false;
-  let communityError = '';
 
   const titles = {
     dashboard: 'Tableau de bord',
     today: 'Aujourd’hui',
     community: 'Communauté',
-    trip: 'Créer ou modifier un voyage',
+    trip: 'Voyage',
     map: 'Carte du voyage',
-    itinerary: 'Feuille de route',
+    itinerary: 'Planning',
     budget: 'Budget',
     suggestions: 'Suggestions',
     preparation: 'Préparation',
@@ -36,134 +34,101 @@
   };
 
   const $ = selector => document.querySelector(selector);
-  const $$ = selector => [...document.querySelectorAll(selector)];
-  const APP_VERSION = 'V4.10 UI & Partage';
-  const ADMIN_EMAIL = 'lucas.scribe01@gmail.com';
+  const $$ = selector => Array.from(document.querySelectorAll(selector));
+
+  document.addEventListener('DOMContentLoaded', init);
 
   function init() {
+    state = Storage.save(state || {});
+    document.getElementById('legalYear')?.append(new Date().getFullYear());
     populateStaticSelects();
     bindNavigation();
     bindActions();
-    applyTheme(state.settings.theme || 'light');
-    renderAll();
-    switchView(location.hash?.replace('#', '') || 'dashboard');
+    applyTheme(state.settings?.theme || 'light');
+    renderAllSafe();
+    switchView(location.hash.replace('#', '') || 'dashboard', { silent: true });
     initCloudSync();
   }
 
   function populateStaticSelects() {
     const typeSelect = $('#stepForm select[name="type"]');
-    typeSelect.innerHTML = U.placeTypes.map(type => `<option value="${type}">${type}</option>`).join('');
+    if (typeSelect) typeSelect.innerHTML = U.placeTypes.map(type => `<option value="${type}">${type}</option>`).join('');
     const categorySelect = $('#expenseForm select[name="category"]');
-    categorySelect.innerHTML = U.expenseCategories.map(category => `<option value="${category}">${category}</option>`).join('');
+    if (categorySelect) categorySelect.innerHTML = U.expenseCategories.map(category => `<option value="${category}">${category}</option>`).join('');
   }
 
   function bindNavigation() {
-    $$('[data-view-link]').forEach(button => {
-      button.addEventListener('click', event => {
-        const view = event.currentTarget.dataset.viewLink;
-        switchView(view);
-      });
+    $$('[data-view-link]').forEach(button => button.addEventListener('click', () => switchView(button.dataset.viewLink)));
+    document.addEventListener('click', event => {
+      const button = event.target.closest('[data-view-link]');
+      if (!button || button.classList.contains('nav-item')) return;
+      event.preventDefault();
+      switchView(button.dataset.viewLink);
     });
-    window.addEventListener('hashchange', () => switchView(location.hash.replace('#', '') || 'dashboard'));
+    window.addEventListener('hashchange', () => switchView(location.hash.replace('#', '') || 'dashboard', { silent: true }));
   }
 
   function bindActions() {
-    const on = (id, event, handler) => {
-      const element = document.getElementById(id);
-      if (element) element.addEventListener(event, handler);
-    };
-
-    on('newTripBtn', 'click', createNewTrip);
-    on('createFirstTripBtn', 'click', createNewTrip);
-    on('loadDemoBtn', 'click', loadDemoTrip);
-    on('tripSelector', 'change', event => {
-      if (!requireCloudReady()) return;
-      state.activeTripId = event.target.value || null;
-      state = Storage.save(state);
-      MapView.resetFilters();
-      renderAll();
-      scheduleCloudAutosave();
-    });
-    on('themeToggle', 'click', () => {
-      state.settings.theme = document.body.classList.contains('dark') ? 'light' : 'dark';
-      state = Storage.save(state);
-      applyTheme(state.settings.theme);
-      renderBudget();
-      scheduleCloudAutosave();
-    });
+    const on = (id, event, handler) => { const el = document.getElementById(id); if (el) el.addEventListener(event, handler); };
+    on('newTripBtn', 'click', () => createNewTrip());
+    on('createFirstTripBtn', 'click', () => createNewTrip());
+    on('loadDemoBtn', 'click', () => loadDemoTrip());
+    on('tripSelector', 'change', event => { state.activeTripId = event.target.value || null; persist('Voyage actif sélectionné.'); });
+    on('themeToggle', 'click', toggleTheme);
     on('tripForm', 'submit', saveTripForm);
+    on('openWizardBtn', 'click', openTripWizard);
+    on('tripWizardForm', 'submit', saveTripWizard);
     on('addStepBtn', 'click', () => openStepDialog());
     on('stepForm', 'submit', saveStepForm);
     on('addExpenseBtn', 'click', () => openExpenseDialog());
     on('expenseForm', 'submit', saveExpenseForm);
     on('fitMapBtn', 'click', MapView.fitBounds);
-    on('refreshItineraryBtn', 'click', () => renderItinerary());
+    on('refreshItineraryBtn', 'click', renderItinerary);
     on('optimizeBtn', 'click', optimizeActiveTrip);
+    on('addChecklistBlockBtn', 'click', addChecklistBlock);
     on('addChecklistItemBtn', 'click', addChecklistItem);
     on('saveSettingsBtn', 'click', saveSettings);
     on('deleteCloudDataBtn', 'click', deleteCloudData);
-    on('communityRefreshBtn', 'click', () => loadCommunityTrips(true));
-    on('communityPublishBtn', 'click', openCommunityPublishDialog);
-    on('communityPublishForm', 'submit', publishCommunityTrip);
+    on('cloudAuthBtn', 'click', handleCloudAuth);
+    on('cloudSignInBtn', 'click', handleCloudSignIn);
+    on('cloudSignOutBtn', 'click', handleCloudSignOut);
+    on('communityPublishBtn', 'click', openCommunityPublish);
+    on('communityRefreshBtn', 'click', refreshCommunity);
+    on('communityPublishForm', 'submit', publishCommunity);
     on('communitySearchInput', 'input', renderCommunity);
     on('communityCountryFilter', 'change', renderCommunity);
     on('communityCategoryFilter', 'change', renderCommunity);
     on('communitySortFilter', 'change', renderCommunity);
-    on('openWizardBtn', 'click', openWizardDialog);
-    on('tripWizardForm', 'submit', saveWizardTrip);
-    on('addChecklistBlockBtn', 'click', addChecklistBlock);
     on('fabMainBtn', 'click', toggleFabMenu);
     on('fabAddTrip', 'click', () => { closeFabMenu(); createNewTrip(); });
     on('fabAddStep', 'click', () => { closeFabMenu(); openStepDialog(); });
     on('fabAddExpense', 'click', () => { closeFabMenu(); openExpenseDialog(); });
-    on('fabOpenChecklist', 'click', () => { closeFabMenu(); switchView('preparation'); });
     on('fabOpenToday', 'click', () => { closeFabMenu(); switchView('today'); });
-    on('todayAddStepBtn', 'click', () => openStepDialog(null, new Date().toISOString().slice(0, 10)));
-    on('todayAddExpenseBtn', 'click', () => openExpenseDialog());
-    on('todayOpenMapBtn', 'click', () => switchView('map'));
-    on('todayOpenPlanningBtn', 'click', () => switchView('itinerary'));
+    on('fabOpenChecklist', 'click', () => { closeFabMenu(); switchView('preparation'); });
     on('globalSearchInput', 'input', renderGlobalSearch);
-    on('globalSearchInput', 'focus', renderGlobalSearch);
-    document.addEventListener('click', event => {
-      if (!event.target.closest('.global-search')) hideGlobalSearch();
-      if (!event.target.closest('.fab-wrap')) closeFabMenu();
-    });
-    bindShareActions();
-    bindPlaceSearch();
-    bindStepDateGuards();
-    bindCloudActions();
-    window.addEventListener('resize', () => MapView.invalidate());
+
     $$('[data-close-dialog]').forEach(button => button.addEventListener('click', () => {
       const dialog = document.getElementById(button.dataset.closeDialog);
       if (dialog?.open) dialog.close('cancel');
     }));
+
+    window.addEventListener('resize', () => MapView.invalidate());
+    attachPlaceSearch();
   }
 
-  function switchView(view) {
-    if (!titles[view]) view = 'dashboard';
-    if (!appReady && !['dashboard', 'community', 'settings'].includes(view)) view = 'dashboard';
-    currentView = view;
-    location.hash = view;
-    $$('.view').forEach(section => section.classList.toggle('is-visible', section.id === `view-${view}`));
-    $$('.nav-item').forEach(item => item.classList.toggle('is-active', item.dataset.viewLink === view));
-    $('#pageTitle').textContent = titles[view];
-    if (view === 'today') renderToday();
-    if (view === 'map') {
-      MapView.initMap();
-      renderMap();
-      MapView.invalidate();
+  function renderAllSafe() {
+    try { renderAll(); }
+    catch (error) {
+      console.error(error);
+      showStatus(`Erreur corrigible : ${error.message || error}`);
     }
-    if (view === 'budget') renderBudget();
-    if (view === 'suggestions') renderSuggestions();
-    if (view === 'itinerary') renderItinerary();
-    if (view === 'community') { renderCommunity(); loadCommunityTrips(false); }
   }
 
   function renderAll() {
+    state = Storage.save(state || {});
     renderTripSelector();
     renderDashboard();
     renderToday();
-    renderTripTemplates();
     renderCommunity();
     renderTripForm();
     renderSteps();
@@ -174,14 +139,22 @@
     renderJournal();
     renderSettings();
     renderMap();
-    renderLegalYear();
+    updateCloudUi();
   }
 
-  function activeTrip() {
-    if (!appReady) return null;
-    return Storage.getTrip(state);
+  function switchView(view, options = {}) {
+    if (!titles[view]) view = 'dashboard';
+    if (!appReady && !['dashboard', 'settings'].includes(view)) view = 'dashboard';
+    currentView = view;
+    if (!options.silent && location.hash.replace('#', '') !== view) location.hash = view;
+    $$('.view').forEach(section => section.classList.toggle('is-visible', section.id === `view-${view}`));
+    $$('.nav-item').forEach(item => item.classList.toggle('is-active', item.dataset.viewLink === view));
+    const title = $('#pageTitle'); if (title) title.textContent = titles[view];
+    if (view === 'map') { MapView.initMap(); renderMap(); MapView.invalidate(); }
+    if (view === 'community') refreshCommunity(false);
   }
 
+  function activeTrip() { return appReady ? Storage.getTrip(state) : null; }
   function requireCloudReady() {
     if (appReady && CloudSync?.getUser()) return true;
     switchView('dashboard');
@@ -190,1670 +163,324 @@
   }
 
   function persist(message) {
-    if (!requireCloudReady()) return;
+    if (!appReady || !CloudSync?.getUser()) { showStatus('Connexion Google requise.'); return; }
     state = Storage.save(state);
-    renderAll();
+    renderAllSafe();
     scheduleCloudAutosave();
     if (message) showStatus(message);
   }
 
-  function showStatus(message) {
+  function showStatus(message, timeout = 3200) {
     const banner = $('#statusBanner');
+    if (!banner || !message) return;
     banner.textContent = message;
     banner.hidden = false;
-    clearTimeout(showStatus.timeout);
-    showStatus.timeout = setTimeout(() => { banner.hidden = true; }, 2800);
+    clearTimeout(showStatus.timer);
+    showStatus.timer = setTimeout(() => { banner.hidden = true; }, timeout);
   }
 
   function applyTheme(theme) {
     document.body.classList.toggle('dark', theme === 'dark');
-    $('#themeToggle').textContent = theme === 'dark' ? '☀️' : '🌙';
+    const btn = $('#themeToggle'); if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
   }
+  function toggleTheme() { state.settings.theme = document.body.classList.contains('dark') ? 'light' : 'dark'; applyTheme(state.settings.theme); persist('Thème mis à jour.'); }
 
   function renderTripSelector() {
     const selector = $('#tripSelector');
-    selector.innerHTML = state.trips.length
-      ? state.trips.map(trip => `<option value="${trip.id}">${U.escapeHtml(trip.name)}</option>`).join('')
-      : '<option value="">Aucun voyage</option>';
+    if (!selector) return;
+    const trips = Array.isArray(state.trips) ? state.trips : [];
+    selector.innerHTML = trips.length ? trips.map(trip => `<option value="${trip.id}">${U.escapeHtml(trip.name)}</option>`).join('') : '<option value="">Aucun voyage</option>';
     selector.value = state.activeTripId || '';
   }
 
   function renderDashboard() {
-    const grid = $('#tripsGrid');
     const focus = $('#dashboardFocus');
-    const user = CloudSync?.getUser();
+    const templates = $('#tripTemplates');
+    const grid = $('#tripsGrid');
+    const trips = Array.isArray(state.trips) ? state.trips : [];
+    if (!grid) return;
 
     if (cloudLoading) {
       if (focus) focus.innerHTML = '';
-      grid.innerHTML = '<div class="empty-state">Chargement de tes voyages depuis Firebase…</div>';
+      if (templates) templates.innerHTML = '';
+      grid.innerHTML = '<div class="empty-state">Chargement de tes voyages…</div>';
       return;
     }
 
-    if (!user || !appReady) {
+    if (!CloudSync?.getUser() || !appReady) {
       if (focus) focus.innerHTML = '';
-      grid.innerHTML = `
-        <div class="auth-landing">
-          <div class="auth-card">
-            <span class="auth-card__badge"><span></span> Espace privé synchronisé</span>
-            <h2>Prépare, suis et partage tes voyages.</h2>
-            <p>Connecte-toi avec Google pour retrouver tes voyages, ton budget, ton planning et tes checklists sur tous tes appareils.</p>
-            <button class="button button--primary button--google auth-card__button" id="dashboardSignInBtn"><span class="google-mark">G</span> Continuer avec Google</button>
-            <div class="auth-card__meta"><span>Cloud Firebase</span><span>Mode voyage</span><span>Carte OSM stable</span></div>
-          </div>
-          <div class="auth-preview">
-            <div class="auth-preview__top"><span></span><span></span><span></span></div>
-            <div class="auth-route-card"><small>Aperçu</small><strong>Roadtrip Tokyo → Kyoto</strong><div class="auth-route-line"><i></i><i></i><i></i><i></i></div></div>
-            <div class="auth-mini-grid"><div><strong>82%</strong><small>prêt</small></div><div><strong>12</strong><small>étapes</small></div><div><strong>3</strong><small>alertes</small></div></div>
-          </div>
-        </div>`;
-      document.getElementById('dashboardSignInBtn')?.addEventListener('click', handleCloudSignIn);
+      if (templates) templates.innerHTML = '';
+      grid.innerHTML = `<div class="login-gate"><div class="login-gate__icon">☁️</div><h2>Connexion Google</h2><p>Connecte-toi pour retrouver tes voyages, ton budget, tes checklists et ton carnet.</p><button class="button button--primary" id="dashboardSignInBtn">Se connecter avec Google</button></div>`;
+      $('#dashboardSignInBtn')?.addEventListener('click', handleCloudSignIn);
       return;
     }
 
     const trip = activeTrip();
-    renderDashboardFocus(trip);
-
-    if (!state.trips.length) {
-      grid.innerHTML = '<div class="empty-state">Aucun voyage pour ce compte. Crée ton premier itinéraire ou utilise un modèle.</div>';
+    if (focus) focus.innerHTML = trip ? renderFocusCard(trip) : '<div class="panel empty-state">Aucun voyage actif. Crée ton premier voyage pour démarrer.</div>';
+    if (templates) renderTemplates(templates);
+    if (!trips.length) {
+      grid.innerHTML = '<div class="empty-state">Aucun voyage pour ce compte. Crée ton premier itinéraire.</div>';
       return;
     }
-
-    grid.innerHTML = state.trips.map(trip => renderTripCard(trip)).join('');
-    grid.querySelectorAll('[data-open-trip]').forEach(button => button.addEventListener('click', () => {
-      if (!requireCloudReady()) return;
-      state.activeTripId = button.dataset.openTrip;
-      state = Storage.save(state);
-      renderAll();
-      scheduleCloudAutosave();
-      switchView('trip');
-    }));
-    grid.querySelectorAll('[data-continue-trip]').forEach(button => button.addEventListener('click', () => {
-      state.activeTripId = button.dataset.continueTrip;
-      state = Storage.save(state);
-      renderAll();
-      switchView('itinerary');
-    }));
-    grid.querySelectorAll('[data-share-trip]').forEach(button => button.addEventListener('click', () => {
-      state.activeTripId = button.dataset.shareTrip;
-      state = Storage.save(state);
-      renderAll();
-      openShareDialog();
-    }));
-    grid.querySelectorAll('[data-duplicate-trip]').forEach(button => button.addEventListener('click', () => {
-      if (!requireCloudReady()) return;
-      state = Storage.duplicateTrip(state, button.dataset.duplicateTrip);
-      renderAll();
-      scheduleCloudAutosave();
-      showStatus('Voyage dupliqué et synchronisé.');
-    }));
-    grid.querySelectorAll('[data-delete-trip]').forEach(button => button.addEventListener('click', () => deleteTrip(button.dataset.deleteTrip)));
+    grid.innerHTML = trips.map(renderTripCard).join('');
+    bindTripCardActions(grid);
   }
 
-  function renderDashboardFocus(trip) {
-    const container = $('#dashboardFocus');
-    if (!container) return;
-    if (!trip) {
-      container.innerHTML = '';
-      return;
-    }
+  function renderFocusCard(trip) {
     const budget = Budget.computeBudget(trip);
-    const insight = Suggestions.evaluate(trip, state.settings);
-    const next = nextTravelItem(trip);
-    const cover = trip.coverImage ? `style="background-image:linear-gradient(120deg,rgba(7,22,43,.78),rgba(15,118,110,.42)),url('${escapeAttr(trip.coverImage)}')"` : '';
-    container.innerHTML = `
-      <section class="control-center panel">
-        <div class="control-center__cover" ${cover}>
-          <span class="badge badge--glass">${U.escapeHtml(trip.status || 'brouillon')}</span>
-          <h2>${U.escapeHtml(trip.name)}</h2>
-          <p>${U.escapeHtml(trip.area || 'Zone à préciser')} · ${getTripDurationDays(trip) || 1} jour(s) · ${Number(trip.travellers) || 1} voyageur(s)</p>
-        </div>
-        <div class="control-center__body">
-          <div class="quick-summary">
-            <article><span>Préparation</span><strong>${insight.score}%</strong></article>
-            <article><span>Budget</span><strong>${U.formatMoney(budget.total, trip.currency)}</strong><small>${trip.maxBudget ? `sur ${U.formatMoney(trip.maxBudget, trip.currency)}` : 'plafond libre'}</small></article>
-            <article><span>Étapes</span><strong>${trip.steps.length}</strong><small>${Itinerary.buildSegments(trip, state.settings).length} trajet(s)</small></article>
-            <article><span>Alertes</span><strong>${insight.items.filter(item => item.level === 'danger' || item.level === 'warning').length}</strong><small>à vérifier</small></article>
-          </div>
-          <div class="travel-mode-card">
-            <p class="eyebrow">Mode voyage</p>
-            <h3>${next ? U.escapeHtml(next.title) : 'Prêt à partir'}</h3>
-            <p>${next ? U.escapeHtml(next.meta) : 'Ajoute des étapes datées pour obtenir une consultation rapide pendant le séjour.'}</p>
-            <div class="button-row">
-              <button class="button button--primary" data-open-view="today">Mode aujourd’hui</button>
-              <button class="button" data-open-view="itinerary">Planning</button>
-              <button class="button" data-open-view="budget">Dépense rapide</button>
-              <button class="button" data-open-view="map">Carte</button>
-            </div>
-          </div>
-        </div>
-      </section>`;
-    container.querySelectorAll('[data-open-view]').forEach(button => button.addEventListener('click', () => switchView(button.dataset.openView)));
+    const score = Suggestions.analyzeTrip?.(trip, state.settings)?.globalScore || 0;
+    const next = nextStep(trip);
+    return `<section class="control-center panel"><div class="control-center__cover" style="background-image:${trip.coverImage ? `url('${U.escapeHtml(trip.coverImage)}')` : 'linear-gradient(135deg, rgba(37,99,235,.92), rgba(20,184,166,.75))'}"></div><div class="control-center__body"><p class="eyebrow">Voyage actif</p><h2>${U.escapeHtml(trip.name)}</h2><p>${U.escapeHtml(trip.description || trip.area || 'Préparation en cours.')}</p><div class="stats-grid"><div class="stat-card"><strong>${score}%</strong><span>préparation</span></div><div class="stat-card"><strong>${trip.steps.length}</strong><span>étape(s)</span></div><div class="stat-card"><strong>${U.formatMoney(budget.actualTotal || budget.plannedTotal, trip.currency)}</strong><span>budget</span></div><div class="stat-card"><strong>${next ? U.formatDate(next.arrivalDate) : '—'}</strong><span>prochaine étape</span></div></div><div class="button-row"><button class="button button--primary" data-view-link="itinerary">Planning</button><button class="button" data-view-link="today">Aujourd’hui</button><button class="button" data-view-link="suggestions">Alertes</button></div></div></section>`;
   }
 
   function renderTripCard(trip) {
     const budget = Budget.computeBudget(trip);
-    const insight = Suggestions.evaluate(trip, state.settings);
-    const cover = trip.coverImage ? `style="background-image:linear-gradient(180deg,rgba(7,23,57,.06),rgba(7,23,57,.74)),url('${escapeAttr(trip.coverImage)}')"` : '';
-    const next = nextTravelItem(trip);
-    return `
-      <article class="trip-card trip-card--pro">
-        <div class="trip-card__cover" ${cover}>
-          <span class="badge badge--glass">${U.escapeHtml(trip.status)}</span>
-          <span class="trip-score">${insight.score}% prêt</span>
-        </div>
-        <div class="trip-card__content">
-          <div class="trip-card__top">
-            <div><h3>${U.escapeHtml(trip.name)}</h3><p>${U.escapeHtml(trip.area || 'zone non renseignée')}</p></div>
-            <span>${trip.steps.length} étape(s)</span>
-          </div>
-          <div class="trip-card__meta trip-card__meta--grid">
-            <span>📅 ${U.formatDate(trip.startDate)} → ${U.formatDate(trip.endDate)}</span>
-            <span>💶 ${U.formatMoney(budget.total, trip.currency)}${trip.maxBudget ? ` / ${U.formatMoney(trip.maxBudget, trip.currency)}` : ''}</span>
-            <span>🧭 ${next ? U.escapeHtml(next.title) : 'Planning à compléter'}</span>
-          </div>
-          <div class="progress"><span style="width:${Math.min(100, insight.score)}%"></span></div>
-          <div class="trip-card__actions">
-            <button class="button button--primary" data-continue-trip="${trip.id}">Continuer</button>
-            <button class="button" data-open-trip="${trip.id}">Modifier</button>
-            <button class="button" data-share-trip="${trip.id}">Partager</button>
-            <button class="button" data-duplicate-trip="${trip.id}">Dupliquer</button>
-            <button class="button button--danger" data-delete-trip="${trip.id}">Supprimer</button>
-          </div>
-        </div>
-      </article>`;
+    const score = Suggestions.analyzeTrip?.(trip, state.settings)?.globalScore || 0;
+    const cover = trip.coverImage ? `background-image:url('${U.escapeHtml(trip.coverImage)}')` : 'background:linear-gradient(135deg, rgba(37,99,235,.95), rgba(20,184,166,.78))';
+    return `<article class="trip-card trip-card--premium"><div class="trip-card__cover" style="${cover}"><span class="badge">${U.escapeHtml(trip.status)}</span></div><div class="trip-card__top"><div><h3>${U.escapeHtml(trip.name)}</h3><p>${U.escapeHtml(trip.area || 'Zone non renseignée')}</p></div><strong>${score}%</strong></div><div class="trip-card__meta"><span>📅 ${U.formatDate(trip.startDate)} → ${U.formatDate(trip.endDate)}</span><span>📍 ${trip.steps.length} étape(s)</span><span>💶 ${U.formatMoney(budget.plannedTotal, trip.currency)}${trip.maxBudget ? ` / ${U.formatMoney(trip.maxBudget, trip.currency)}` : ''}</span></div><div class="trip-card__actions"><button class="button button--primary" data-open-trip="${trip.id}">Ouvrir</button><button class="button" data-duplicate-trip="${trip.id}">Dupliquer</button><button class="button" data-delete-trip="${trip.id}">Supprimer</button></div></article>`;
   }
 
-  function nextTravelItem(trip) {
-    const today = new Date();
-    const todayKey = today.toISOString().slice(0, 10);
-    const steps = U.sortSteps(trip?.steps || []);
-    const next = steps.find(step => (step.arrivalDate || '') >= todayKey) || steps[0];
-    if (!next) return null;
-    const time = [next.arrivalDate ? U.formatDate(next.arrivalDate) : '', next.arrivalTime || ''].filter(Boolean).join(' · ');
-    return { title: next.name, meta: `${next.type || 'étape'}${time ? ` · ${time}` : ''}${next.address ? ` · ${next.address}` : ''}` };
+  function bindTripCardActions(root) {
+    root.querySelectorAll('[data-open-trip]').forEach(button => button.addEventListener('click', () => { state.activeTripId = button.dataset.openTrip; persist('Voyage ouvert.'); switchView('trip'); }));
+    root.querySelectorAll('[data-duplicate-trip]').forEach(button => button.addEventListener('click', () => { state = Storage.duplicateTrip(state, button.dataset.duplicateTrip); persist('Voyage dupliqué.'); }));
+    root.querySelectorAll('[data-delete-trip]').forEach(button => button.addEventListener('click', () => deleteTrip(button.dataset.deleteTrip)));
   }
 
+  function renderTemplates(container) {
+    const items = [
+      ['citybreak', 'City break', '🏙️', '2-4 jours'], ['roadtrip', 'Roadtrip', '🚗', 'route + étapes'], ['avion', 'Voyage en avion', '✈️', 'aéroport + transfert'], ['nature', 'Aventure nature', '🥾', 'checklist outdoor']
+    ];
+    container.innerHTML = items.map(([key, label, icon, desc]) => `<button class="template-card" data-template="${key}"><span>${icon}</span><strong>${label}</strong><small>${desc}</small></button>`).join('');
+    container.querySelectorAll('[data-template]').forEach(btn => btn.addEventListener('click', () => createTripFromTemplate(btn.dataset.template)));
+  }
 
   function renderToday() {
-    const hero = $('#todayHero');
-    const side = $('#todayQuickActions');
-    const timeline = $('#todayTimeline');
+    const hero = $('#todayHero'); const side = $('#todayQuickActions'); const timeline = $('#todayTimeline');
     if (!hero || !side || !timeline) return;
     const trip = activeTrip();
-    if (!trip) {
-      hero.innerHTML = '<div class="empty-state">Sélectionne un voyage pour activer le mode Aujourd’hui.</div>';
-      side.innerHTML = '';
-      timeline.innerHTML = '';
-      return;
-    }
-    const data = getTodayTravelData(trip);
-    const budget = Budget.computeBudget(trip);
-    const alert = Suggestions.evaluate(trip, state.settings).items.find(item => item.level === 'danger' || item.level === 'warning');
-    const cover = trip.coverImage ? `style="background-image:linear-gradient(120deg,rgba(5,18,38,.84),rgba(12,118,110,.34)),url('${escapeAttr(trip.coverImage)}')"` : '';
-    hero.innerHTML = `
-      <div class="today-hero__cover" ${cover}>
-        <span class="badge badge--glass">${U.escapeHtml(trip.status || 'prévu')}</span>
-        <h2>${U.escapeHtml(trip.name)}</h2>
-        <p>${U.escapeHtml(trip.area || 'Destination à préciser')} · ${getTripDurationDays(trip) || 1} jour(s)</p>
-      </div>
-      <div class="today-hero__body">
-        <p class="eyebrow">Mode voyage</p>
-        <h3>${data.currentLabel}</h3>
-        <div class="today-next-card">
-          <small>Prochaine étape</small>
-          <strong>${data.next ? U.escapeHtml(data.next.name) : 'Aucune étape datée'}</strong>
-          <span>${data.next ? formatStepDateTime(data.next) : 'Ajoute des dates et horaires au planning.'}</span>
-          ${data.next?.address ? `<a href="${openMapUrl(data.next)}" target="_blank" rel="noreferrer">Ouvrir l’adresse</a>` : ''}
-        </div>
-      </div>`;
-    side.innerHTML = `
-      <div class="today-actions-head"><strong>Actions rapides</strong><small>Utile pendant le voyage</small></div>
-      <div class="today-actions-grid">
-        <button class="button button--primary" id="todayAddExpenseBtn">+ Dépense</button>
-        <button class="button" id="todayAddStepBtn">+ Étape</button>
-        <button class="button" id="todayOpenPlanningBtn">Planning</button>
-        <button class="button" id="todayOpenMapBtn">Carte</button>
-      </div>
-      <div class="today-mini-metrics">
-        <article><span>Budget prévu</span><strong>${U.formatMoney(budget.plannedTotal, trip.currency)}</strong></article>
-        <article><span>Réel saisi</span><strong>${U.formatMoney(budget.actualTotal, trip.currency)}</strong></article>
-        <article><span>Alertes</span><strong>${Suggestions.evaluate(trip, state.settings).items.filter(item => item.level !== 'success').length}</strong></article>
-      </div>
-      ${alert ? `<div class="today-alert"><strong>À vérifier</strong><p>${U.escapeHtml(alert.message)}</p></div>` : `<div class="today-alert today-alert--ok"><strong>Tout semble cohérent</strong><p>Aucune alerte prioritaire pour le moment.</p></div>`}`;
-    const steps = data.todaySteps.length ? data.todaySteps : U.sortSteps(trip.steps || []).slice(0, 6);
-    timeline.innerHTML = `
-      <div class="panel__header"><div><p class="eyebrow">Consultation rapide</p><h2>${data.todaySteps.length ? 'Programme du jour' : 'Prochaines étapes'}</h2></div></div>
-      <div class="today-list">
-        ${steps.length ? steps.map(step => `
-          <article class="today-item">
-            <span class="today-time">${[step.arrivalTime, step.departureTime ? `→ ${step.departureTime}` : ''].filter(Boolean).join(' ') || 'Horaire à préciser'}</span>
-            <div><strong>${U.escapeHtml(step.name)}</strong><p>${U.escapeHtml(step.type || 'étape')} · ${step.address ? U.escapeHtml(step.address) : 'adresse à compléter'}</p></div>
-            <button class="button" data-today-edit="${step.id}">Modifier</button>
-          </article>
-        `).join('') : '<div class="empty-state">Aucune étape. Ajoute ton premier lieu.</div>'}
-      </div>`;
-    timeline.querySelectorAll('[data-today-edit]').forEach(button => button.addEventListener('click', () => openStepDialog(button.dataset.todayEdit)));
-    ['todayAddExpenseBtn','todayAddStepBtn','todayOpenPlanningBtn','todayOpenMapBtn'].forEach(id => {
-      const old = document.getElementById(id);
-      if (!old) return;
-      if (id === 'todayAddExpenseBtn') old.addEventListener('click', () => openExpenseDialog());
-      if (id === 'todayAddStepBtn') old.addEventListener('click', () => openStepDialog(null, new Date().toISOString().slice(0,10)));
-      if (id === 'todayOpenPlanningBtn') old.addEventListener('click', () => switchView('itinerary'));
-      if (id === 'todayOpenMapBtn') old.addEventListener('click', () => switchView('map'));
-    });
-  }
-
-  function getTodayTravelData(trip) {
-    const todayKey = new Date().toISOString().slice(0, 10);
-    const steps = U.sortSteps(trip?.steps || []);
-    const todaySteps = steps.filter(step => (step.arrivalDate || step.departureDate) === todayKey);
-    const next = todaySteps[0] || steps.find(step => (step.arrivalDate || '') >= todayKey) || steps[0] || null;
-    const currentLabel = todaySteps.length ? `Aujourd’hui · ${todaySteps.length} étape(s)` : (next ? 'Prochaine étape à préparer' : 'Aucun programme');
-    return { todayKey, todaySteps, next, currentLabel };
-  }
-
-  function formatStepDateTime(step) {
-    return [step.arrivalDate ? U.formatDate(step.arrivalDate) : '', step.arrivalTime || '', step.departureTime ? `départ ${step.departureTime}` : ''].filter(Boolean).join(' · ');
-  }
-
-  function openMapUrl(step) {
-    if (U.isValidCoord(step)) return `https://www.openstreetmap.org/?mlat=${Number(step.lat)}&mlon=${Number(step.lng)}#map=15/${Number(step.lat)}/${Number(step.lng)}`;
-    return `https://www.openstreetmap.org/search?query=${encodeURIComponent(step.address || step.name || '')}`;
-  }
-
-
-  function escapeAttr(value) {
-    return U.escapeHtml(String(value || '')).replace(/"/g, '&quot;');
-  }
-
-  function getTripDurationDays(trip) {
-    if (!trip?.startDate || !trip?.endDate) return 0;
-    const start = new Date(`${trip.startDate}T00:00:00`);
-    const end = new Date(`${trip.endDate}T00:00:00`);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
-    return Math.max(1, Math.round((end - start) / 86400000) + 1);
-  }
-
-  function inferCommunityCategory(trip) {
-    const text = `${trip?.style || ''} ${trip?.pace || ''} ${trip?.interests || ''} ${trip?.description || ''}`.toLowerCase();
-    if (text.includes('road') || text.includes('voiture')) return 'roadtrip';
-    if (text.includes('famille')) return 'famille';
-    if (text.includes('plage')) return 'plage';
-    if (text.includes('nature') || text.includes('randonnée')) return 'nature';
-    if (text.includes('gastronomie') || text.includes('restaurant')) return 'gastronomie';
-    if (text.includes('culture') || text.includes('musée')) return 'culture';
-    if (text.includes('aventure')) return 'aventure';
-    if (text.includes('économique') || text.includes('budget')) return 'budget';
-    if (text.includes('confort')) return 'confort';
-    return 'citybreak';
-  }
-
-
-  function isCommunityAdmin() {
-    const email = (CloudSync?.getUser()?.email || '').toLowerCase();
-    return email === ADMIN_EMAIL.toLowerCase();
-  }
-
-
-  function renderCommunity() {
-    const grid = $('#communityGrid');
-    if (!grid) return;
-    const stats = $('#communityStats');
-    const adminPanel = $('#communityAdminPanel');
-    const countryFilter = $('#communityCountryFilter');
-    const categoryFilter = $('#communityCategoryFilter');
-    const sortFilter = $('#communitySortFilter');
-    const searchInput = $('#communitySearchInput');
-
-    const countries = [...new Set(communityTrips.map(item => item.country || item.area).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
-    if (countryFilter) {
-      const selected = countryFilter.value;
-      countryFilter.innerHTML = '<option value="">Tous les pays</option>' + countries.map(country => `<option value="${escapeAttr(country)}">${U.escapeHtml(country)}</option>`).join('');
-      countryFilter.value = countries.includes(selected) ? selected : '';
-    }
-
-    if (communityLoading) {
-      if (stats) stats.innerHTML = '';
-      grid.innerHTML = '<div class="empty-state">Chargement des voyages partagés…</div>';
-      return;
-    }
-
-    if (!CloudSync?.isConfigured()) {
-      grid.innerHTML = '<div class="empty-state">Firebase doit être configuré pour afficher la communauté.</div>';
-      return;
-    }
-    if (communityError) {
-      grid.innerHTML = `<div class="empty-state empty-state--error"><strong>Communauté indisponible</strong><span>${U.escapeHtml(communityError)}</span><button class="button" id="communityRetryBtn">Réessayer</button></div>`;
-      const retry = document.getElementById('communityRetryBtn');
-      if (retry) retry.addEventListener('click', () => loadCommunityTrips(true));
-      return;
-    }
-
-    let list = [...communityTrips];
-    const search = (searchInput?.value || '').trim().toLowerCase();
-    const country = countryFilter?.value || '';
-    const category = categoryFilter?.value || '';
-    const sort = sortFilter?.value || 'trend';
-
-    if (search) {
-      list = list.filter(item => `${item.title} ${item.area} ${item.country} ${item.category} ${item.style} ${item.description} ${(item.highlights || []).join(' ')}`.toLowerCase().includes(search));
-    }
-    if (country) list = list.filter(item => (item.country || item.area) === country);
-    if (category) list = list.filter(item => item.category === category);
-
-    list.sort((a, b) => {
-      if (sort === 'recent') return String(b.publishedAt || '').localeCompare(String(a.publishedAt || ''));
-      if (sort === 'popular') return (Number(b.upVotes) || 0) - (Number(a.upVotes) || 0);
-      if (sort === 'duration') return (Number(b.durationDays) || 0) - (Number(a.durationDays) || 0);
-      if (sort === 'budgetLow') return (Number(a.publicBudget || 0) || 0) - (Number(b.publicBudget || 0) || 0);
-      return (Number(b.trendScore) || 0) - (Number(a.trendScore) || 0) || String(b.publishedAt || '').localeCompare(String(a.publishedAt || ''));
-    });
-
-    const totalVotes = communityTrips.reduce((sum, item) => sum + (Number(item.upVotes) || 0) + (Number(item.downVotes) || 0), 0);
-    if (stats) {
-      const topCountry = countries[0] || '—';
-      stats.innerHTML = `
-        <article class="stat-card"><span>Voyages publics</span><strong>${communityTrips.length}</strong></article>
-        <article class="stat-card"><span>Pays / zones</span><strong>${countries.length}</strong></article>
-        <article class="stat-card"><span>Votes</span><strong>${totalVotes}</strong></article>
-        <article class="stat-card"><span>Résultats affichés</span><strong>${list.length}</strong></article>
-      `;
-    }
-    if (adminPanel) {
-      const admin = isCommunityAdmin();
-      adminPanel.hidden = !admin;
-      adminPanel.innerHTML = admin ? `<div class="admin-strip"><strong>Mode admin Lucas S.</strong><span>Tu peux retirer une publication de la communauté si elle est inadaptée.</span><span>${communityTrips.length} publication(s) surveillée(s)</span></div>` : '';
-    }
-
-    if (!communityLoaded && !communityTrips.length) {
-      grid.innerHTML = '<div class="empty-state">Clique sur Actualiser pour charger les voyages partagés.</div>';
-      return;
-    }
-    if (!list.length) {
-      grid.innerHTML = '<div class="empty-state">Aucun voyage ne correspond à ces filtres.</div>';
-      return;
-    }
-
-    const user = CloudSync?.getUser();
-    grid.innerHTML = list.map(item => {
-      const userVote = user && item.votes ? Number(item.votes[user.uid]) || 0 : 0;
-      const canCopy = item.allowCopy !== false && item.trip;
-      const owner = user && item.ownerUid === user.uid;
-      const admin = isCommunityAdmin();
-      const budgetText = item.hideBudget ? 'Budget masqué' : `${U.formatMoney(item.publicBudget || 0, item.currency || '€')} estimé`;
-      const highlights = (item.highlights || []).slice(0, 4).map(step => `<span>${U.escapeHtml(step)}</span>`).join('');
-      const cover = item.coverImage ? `style="background-image:linear-gradient(180deg,rgba(7,23,57,.12),rgba(7,23,57,.72)),url('${escapeAttr(item.coverImage)}')"` : '';
-      return `
-        <article class="community-card">
-          <div class="community-cover" ${cover}>
-            <span class="community-pill">${U.escapeHtml(item.category || 'voyage')}</span>
-            <span class="community-trend">🔥 ${Number(item.trendScore) || 0}</span>
-          </div>
-          <div class="community-card__body">
-            <div class="community-card__head">
-              <div>
-                <h3>${U.escapeHtml(item.title || 'Voyage partagé')}</h3>
-                <p>${U.escapeHtml(item.country || item.area || 'Zone non renseignée')} · ${Number(item.durationDays) || '?'} j · ${Number(item.stepsCount) || 0} étapes</p>
-              </div>
-              <span class="badge">${U.escapeHtml(item.style || 'style libre')}</span>
-            </div>
-            <p>${U.escapeHtml(item.description || 'Itinéraire partagé par la communauté.')}</p>
-            <div class="community-highlights">${highlights || '<span>Étapes à découvrir</span>'}</div>
-            <div class="community-meta">
-              <span>👤 ${U.escapeHtml(item.ownerName || 'Voyageur')}</span>
-              <span>💶 ${U.escapeHtml(budgetText)}</span>
-              <span>👍 ${Number(item.upVotes) || 0} · 👎 ${Number(item.downVotes) || 0}</span>
-            </div>
-            <div class="community-actions">
-              <button class="button ${userVote === 1 ? 'button--primary' : ''}" data-community-vote="1" data-community-id="${item.id}">+ Tendance</button>
-              <button class="button ${userVote === -1 ? 'button--danger' : ''}" data-community-vote="-1" data-community-id="${item.id}">-</button>
-              <button class="button" data-community-copy="${item.id}" ${canCopy ? '' : 'disabled'}>Copier</button>
-              ${owner || admin ? `<button class="button button--danger" data-community-delete="${item.id}">${admin && !owner ? 'Admin retirer' : 'Retirer'}</button>` : ''}
-            </div>
-          </div>
-        </article>
-      `;
-    }).join('');
-
-    grid.querySelectorAll('[data-community-vote]').forEach(button => button.addEventListener('click', () => voteCommunityTrip(button.dataset.communityId, Number(button.dataset.communityVote))));
-    grid.querySelectorAll('[data-community-copy]').forEach(button => button.addEventListener('click', () => copyCommunityTrip(button.dataset.communityCopy)));
-    grid.querySelectorAll('[data-community-delete]').forEach(button => button.addEventListener('click', () => deleteCommunityTrip(button.dataset.communityDelete)));
-  }
-
-  async function loadCommunityTrips(force = false) {
-    if (!CloudSync?.isConfigured() || communityLoading || (communityLoaded && !force)) {
-      renderCommunity();
-      return;
-    }
-    communityLoading = true;
-    communityError = '';
-    renderCommunity();
-    try {
-      await CloudSync.init();
-      communityTrips = await CloudSync.listCommunityTrips();
-      communityLoaded = true;
-    } catch (error) {
-      console.error(error);
-      communityTrips = [];
-      communityLoaded = true;
-      communityError = error.message || 'Impossible de charger la communauté. Vérifie les règles Firestore et la connexion.';
-      showStatus(communityError);
-    } finally {
-      communityLoading = false;
-      renderCommunity();
-    }
-  }
-
-  function openCommunityPublishDialog() {
-    if (!requireCloudReady()) return;
-    const trip = activeTrip();
-    if (!trip) return showStatus('Crée ou sélectionne un voyage à partager.');
-    const form = $('#communityPublishForm');
-    if (!form) return showStatus('Formulaire de publication introuvable.');
-    form.reset();
-    form.elements.title.value = trip.name || '';
-    form.elements.country.value = trip.area || '';
-    form.elements.category.value = inferCommunityCategory(trip);
-    form.elements.coverImage.value = trip.coverImage || '';
-    form.elements.description.value = trip.description || '';
-    const dialog = $('#communityPublishDialog');
-    if (dialog?.showModal) dialog.showModal();
-    else showStatus('Ton navigateur ne peut pas ouvrir la fenêtre de publication.');
-  }
-
-  function buildCommunityPayload(trip, form) {
-    const data = new FormData(form);
-    const hideBudget = Boolean(data.get('hideBudget'));
-    const hideNotes = Boolean(data.get('hideNotes'));
-    const allowCopy = Boolean(data.get('allowCopy'));
-    const budget = Budget.computeBudget(trip);
+    if (!trip) { hero.innerHTML = '<div class="empty-state">Connecte-toi et sélectionne un voyage.</div>'; side.innerHTML = ''; timeline.innerHTML = ''; return; }
     const steps = U.sortSteps(trip.steps || []);
-    const publicSteps = steps.map((step, index) => ({
-      id: step.id || U.uid('step'),
-      order: index,
-      name: step.name || `Étape ${index + 1}`,
-      type: step.type || 'ville',
-      lat: step.lat === '' || step.lat == null ? '' : Number(step.lat),
-      lng: step.lng === '' || step.lng == null ? '' : Number(step.lng),
-      address: step.address || '',
-      arrivalDate: step.arrivalDate || '',
-      arrivalTime: step.arrivalTime || '',
-      departureDate: step.departureDate || '',
-      departureTime: step.departureTime || '',
-      duration: step.duration || '',
-      cost: hideBudget ? 0 : Number(step.cost) || 0,
-      priority: step.priority || 'optionnel',
-      color: step.color || '#2563eb',
-      notes: hideNotes ? '' : (step.notes || ''),
-      links: [],
-      transportToNext: step.transportToNext || 'car',
-      segmentCost: hideBudget ? 0 : Number(step.segmentCost) || 0,
-      segmentNote: hideNotes ? '' : (step.segmentNote || '')
-    }));
-    const publicTrip = Storage.normalizeTrip({
-      id: trip.id,
-      name: String(data.get('title') || trip.name || 'Voyage partagé'),
-      description: String(data.get('description') || trip.description || ''),
-      area: String(data.get('country') || trip.area || ''),
-      coverImage: String(data.get('coverImage') || trip.coverImage || ''),
-      startDate: trip.startDate || '',
-      endDate: trip.endDate || '',
-      travellers: trip.travellers || 1,
-      currency: trip.currency || '€',
-      status: 'public',
-      style: trip.style || 'équilibré',
-      pace: trip.pace || 'normal',
-      interests: trip.interests || '',
-      steps: publicSteps,
-      expenses: hideBudget ? [] : (trip.expenses || []).map(expense => ({ ...expense, note: '' })),
-      checklists: {}
-    });
-    return {
-      sourceTripId: trip.id,
-      title: String(data.get('title') || trip.name || 'Voyage partagé'),
-      country: String(data.get('country') || trip.area || ''),
-      area: String(data.get('country') || trip.area || ''),
-      category: String(data.get('category') || inferCommunityCategory(trip)),
-      style: trip.style || 'équilibré',
-      pace: trip.pace || 'normal',
-      interests: trip.interests || '',
-      description: String(data.get('description') || trip.description || ''),
-      coverImage: String(data.get('coverImage') || trip.coverImage || ''),
-      currency: trip.currency || '€',
-      publicBudget: hideBudget ? 0 : Number(budget.total) || 0,
-      hideBudget,
-      hideNotes,
-      allowCopy,
-      durationDays: getTripDurationDays(trip),
-      stepsCount: steps.length,
-      highlights: steps.slice(0, 6).map(step => step.name).filter(Boolean),
-      trip: publicTrip
-    };
+    const next = nextStep(trip) || steps[0];
+    hero.innerHTML = `<p class="eyebrow">Mode voyage</p><h2>${next ? U.escapeHtml(next.name) : 'Aucune étape'}</h2><p>${next ? `${U.formatDate(next.arrivalDate)}${next.arrivalTime ? ` · ${next.arrivalTime}` : ''} · ${U.escapeHtml(next.address || next.type || '')}` : 'Ajoute des étapes pour utiliser le mode voyage.'}</p><div class="button-row"><button class="button button--primary" id="todayAddExpense">+ Dépense rapide</button><button class="button" id="todayAddNote">+ Note</button><button class="button" data-view-link="map">Carte</button></div>`;
+    $('#todayAddExpense')?.addEventListener('click', () => openExpenseDialog());
+    $('#todayAddNote')?.addEventListener('click', () => switchView('journal'));
+    side.innerHTML = `<p class="eyebrow">Résumé rapide</p><h3>${U.escapeHtml(trip.name)}</h3><p>${trip.steps.length} étape(s) · ${Budget.computeBudget(trip).days} jour(s)</p><p>${Suggestions.analyzeTrip?.(trip, state.settings)?.suggestions?.filter(s => s.level !== 'success').length || 0} point(s) à vérifier</p>`;
+    timeline.innerHTML = steps.length ? steps.slice(0, 8).map((step, i) => `<article class="timeline-row"><span class="step-marker" style="background:${step.color || '#2563eb'}">${i + 1}</span><div><h3>${U.escapeHtml(step.name)}</h3><p>${U.formatDate(step.arrivalDate)}${step.arrivalTime ? ` · arrivée ${step.arrivalTime}` : ''}${step.departureTime ? ` · départ ${step.departureTime}` : ''}</p></div></article>`).join('') : '<div class="empty-state">Aucune étape à afficher.</div>';
   }
 
-  async function publishCommunityTrip(event) {
-    event.preventDefault();
-    if (!requireCloudReady()) return;
-    const trip = activeTrip();
-    if (!trip) return showStatus('Sélectionne un voyage avant de publier.');
-    const form = event.currentTarget;
-    const submit = form.querySelector('button[type="submit"]');
-    if (submit) {
-      submit.disabled = true;
-      submit.textContent = 'Publication…';
-    }
-    try {
-      await flushCloudAutosave();
-      const payload = buildCommunityPayload(trip, form);
-      const doc = await CloudSync.publishCommunityTrip(payload);
-      const dialog = $('#communityPublishDialog');
-      if (dialog?.open) dialog.close();
-      communityLoaded = false;
-      communityError = '';
-      await loadCommunityTrips(true);
-      switchView('community');
-      showStatus(`Voyage publié dans la communauté : ${doc.title}.`);
-    } catch (error) {
-      console.error(error);
-      const message = /permission|insufficient|denied/i.test(error.message || '')
-        ? 'Publication bloquée par les règles Firestore. Copie les règles fournies dans Firebase puis réessaie.'
-        : (error.message || 'Publication impossible.');
-      showStatus(message);
-    } finally {
-      if (submit) {
-        submit.disabled = false;
-        submit.textContent = 'Publier dans la communauté';
-      }
-    }
-  }
-
-  async function voteCommunityTrip(id, value) {
-    try {
-      if (!CloudSync?.getUser()) {
-        showStatus('Connecte-toi avec Google pour voter.');
-        await handleCloudSignIn();
-        return;
-      }
-      const updated = await CloudSync.voteCommunityTrip(id, value);
-      const index = communityTrips.findIndex(item => item.id === id);
-      if (index >= 0) communityTrips[index] = updated;
-      renderCommunity();
-    } catch (error) {
-      console.error(error);
-      showStatus(error.message || 'Vote impossible.');
-    }
-  }
-
-  async function copyCommunityTrip(id) {
-    const item = communityTrips.find(entry => entry.id === id);
-    if (!item?.trip) return showStatus('Voyage communautaire introuvable.');
-    if (!appReady || !CloudSync?.getUser()) {
-      showStatus('Connecte-toi avec Google pour copier ce voyage.');
-      await handleCloudSignIn();
-      return;
-    }
-    const copy = Storage.normalizeTrip({
-      ...U.clone(item.trip),
-      id: U.uid('trip'),
-      name: `${item.title || item.trip.name} — inspiration`,
-      status: 'brouillon',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
-    state = Storage.upsertTrip(state, copy);
-    scheduleCloudAutosave();
-    renderAll();
-    switchView('trip');
-    showStatus('Voyage copié dans ton espace.');
-  }
-
-  async function deleteCommunityTrip(id) {
-    const ok = await confirmAction('Retirer ce voyage de la communauté ?', 'La publication publique sera supprimée, mais ton voyage privé restera dans ton espace.');
-    if (!ok) return;
-    try {
-      await CloudSync.deleteCommunityTrip(id);
-      communityTrips = communityTrips.filter(item => item.id !== id);
-      renderCommunity();
-      showStatus('Publication communautaire supprimée.');
-    } catch (error) {
-      console.error(error);
-      showStatus(error.message || 'Suppression impossible.');
-    }
+  function nextStep(trip) {
+    const today = new Date().toISOString().slice(0, 10);
+    return U.sortSteps(trip?.steps || []).find(step => !step.arrivalDate || step.arrivalDate >= today) || U.sortSteps(trip?.steps || []).at(-1) || null;
   }
 
   function renderTripForm() {
-    const form = $('#tripForm');
+    const form = $('#tripForm'); if (!form) return;
     const trip = activeTrip();
-    form.querySelectorAll('input, textarea, select, button').forEach(element => { element.disabled = !trip && element.type !== 'submit'; });
-    if (!trip) {
-      form.reset();
-      return;
-    }
-    const fields = ['name', 'description', 'area', 'coverImage', 'startDate', 'endDate', 'travellers', 'travellersNames', 'maxBudget', 'currency', 'status', 'style', 'pace', 'interests'];
-    fields.forEach(field => { if (form.elements[field]) form.elements[field].value = trip[field] ?? ''; });
+    form.querySelectorAll('input, textarea, select, button').forEach(el => { if (el.type !== 'submit' && el.id !== 'openWizardBtn') el.disabled = !trip; });
+    if (!trip) { form.reset(); return; }
+    ['name','description','area','coverImage','startDate','endDate','maxBudget','currency','status','style','pace','interests'].forEach(key => { if (form.elements[key]) form.elements[key].value = trip[key] ?? ''; });
+    if (form.elements.travellers) form.elements.travellers.value = trip.travellers || 1;
+    if (form.elements.travellersNames) form.elements.travellersNames.value = (trip.travellersNames || []).join(', ');
   }
 
   function saveTripForm(event) {
-    event.preventDefault();
-    if (!requireCloudReady()) return;
-    let trip = activeTrip();
-    if (!trip) trip = Storage.normalizeTrip({});
+    event.preventDefault(); if (!requireCloudReady()) return;
     const data = new FormData(event.currentTarget);
-    ['name', 'description', 'area', 'coverImage', 'startDate', 'endDate', 'travellersNames', 'currency', 'status', 'style', 'pace', 'interests'].forEach(key => { trip[key] = String(data.get(key) || ''); });
+    const trip = activeTrip() || Storage.normalizeTrip({});
+    ['name','description','area','coverImage','startDate','endDate','currency','status','style','pace','interests'].forEach(key => trip[key] = String(data.get(key) || ''));
     trip.travellers = Math.max(1, Number(data.get('travellers')) || 1);
+    trip.travellersNames = String(data.get('travellersNames') || '').split(',').map(v => v.trim()).filter(Boolean);
     trip.maxBudget = Number(data.get('maxBudget')) || 0;
-    trip.updatedAt = new Date().toISOString();
     state = Storage.upsertTrip(state, trip);
-    renderAll();
-    scheduleCloudAutosave();
-    showStatus('Voyage enregistré.');
+    persist('Voyage enregistré.');
   }
 
   function createNewTrip() {
-    if (!requireCloudReady()) return;
-    const trip = Storage.normalizeTrip({
-      name: 'Nouveau voyage',
-      currency: '€',
-      travellers: 1,
-      status: 'brouillon',
-      steps: [],
-      expenses: []
-    });
+    if (!CloudSync?.getUser()) return handleCloudSignIn();
+    const trip = Storage.normalizeTrip({ name: 'Nouveau voyage', status: 'brouillon' });
     state = Storage.upsertTrip(state, trip);
-    scheduleCloudAutosave();
+    persist('Nouveau voyage créé.');
     switchView('trip');
-    showStatus('Nouveau voyage créé.');
+  }
+
+  function createTripFromTemplate(template) {
+    if (!CloudSync?.getUser()) return handleCloudSignIn();
+    const presets = { citybreak: 'City break', roadtrip: 'Roadtrip', avion: 'Voyage en avion', nature: 'Aventure nature' };
+    const trip = Storage.normalizeTrip({ name: presets[template] || 'Nouveau voyage', style: template === 'nature' ? 'aventure' : 'équilibré', status: 'brouillon' });
+    state = Storage.upsertTrip(state, trip);
+    persist('Modèle ajouté.');
+    switchView('trip');
+  }
+
+  function openTripWizard() { if (!requireCloudReady()) return; $('#tripWizardDialog')?.showModal(); }
+  function saveTripWizard(event) {
+    event.preventDefault(); if (!requireCloudReady()) return;
+    const data = new FormData(event.currentTarget);
+    const trip = Storage.normalizeTrip({
+      name: data.get('name') || 'Nouveau voyage', area: data.get('area') || '', coverImage: data.get('coverImage') || '', startDate: data.get('startDate') || '', endDate: data.get('endDate') || '', travellersNames: data.get('travellersNames') || '', maxBudget: Number(data.get('maxBudget')) || 0, currency: data.get('currency') || '€', style: data.get('style') || 'équilibré', pace: data.get('pace') || 'normal', interests: data.get('interests') || '', description: data.get('description') || ''
+    });
+    const start = String(data.get('startPlace') || '').trim(); const end = String(data.get('endPlace') || '').trim();
+    if (start) trip.steps.push(Storage.normalizeTrip({ steps: [{ name: start, type: 'ville', arrivalDate: trip.startDate, departureDate: trip.startDate, priority: 'indispensable', color: '#2563eb' }] }).steps[0]);
+    if (end) trip.steps.push(Storage.normalizeTrip({ steps: [{ name: end, type: 'ville', arrivalDate: trip.endDate, departureDate: trip.endDate, priority: 'indispensable', color: '#14b8a6', order: 1 }] }).steps[0]);
+    state = Storage.upsertTrip(state, trip);
+    $('#tripWizardDialog')?.close();
+    persist('Voyage guidé créé.');
+    switchView('trip');
   }
 
   function loadDemoTrip() {
     if (!requireCloudReady()) return;
-    const demo = Storage.normalizeTrip({
-      name: 'Exemple — Paris à Venise',
-      area: 'France · Italie',
-      description: 'Démonstration d’un road trip simple avec étapes, carte, budget et suggestions locales.',
-      startDate: '2026-07-12',
-      endDate: '2026-07-18',
-      travellers: 2,
-      maxBudget: 1800,
-      currency: '€',
-      status: 'prévu',
-      style: 'équilibré',
-      pace: 'normal',
-      interests: 'ville, gastronomie, culture, photo',
-      steps: [
-        { order: 0, name: 'Paris', type: 'ville', lat: 48.8566, lng: 2.3522, arrivalDate: '2026-07-12', departureDate: '2026-07-12', priority: 'indispensable', color: '#2563eb', transportToNext: 'car', notes: 'Départ le matin.' },
-        { order: 1, name: 'Lyon', type: 'ville', lat: 45.764, lng: 4.8357, arrivalDate: '2026-07-12', departureDate: '2026-07-14', cost: 240, priority: 'indispensable', color: '#16a34a', transportToNext: 'car', segmentNote: 'Prévoir une pause sur l’autoroute.' },
-        { order: 2, name: 'Milan', type: 'ville', lat: 45.4642, lng: 9.19, arrivalDate: '2026-07-14', departureDate: '2026-07-16', cost: 280, priority: 'optionnel', color: '#f59e0b', transportToNext: 'train' },
-        { order: 3, name: 'Venise', type: 'ville', lat: 45.4408, lng: 12.3155, arrivalDate: '2026-07-16', departureDate: '2026-07-18', cost: 360, priority: 'indispensable', color: '#dc2626' }
-      ],
-      expenses: [
-        { label: 'Hôtels', category: 'logement', amount: 680, status: 'prévue', date: '2026-07-12' },
-        { label: 'Carburant et péages', category: 'transport', amount: 260, status: 'prévue', date: '2026-07-12' },
-        { label: 'Repas', category: 'nourriture', amount: 420, status: 'prévue' },
-        { label: 'Musées et activités', category: 'activités', amount: 160, status: 'prévue' }
-      ]
-    });
-    state = Storage.upsertTrip(state, demo);
-    renderAll();
-    scheduleCloudAutosave();
-    switchView('dashboard');
-    showStatus('Voyage exemple ajouté.');
+    const trip = Storage.normalizeTrip({ name: 'Roadtrip exemple', area: 'France · Italie', status: 'prévu', startDate: '2026-07-12', endDate: '2026-07-18', maxBudget: 1800, travellers: 2, travellersNames: ['Lucas', 'Marie'], steps: [
+      { name: 'Paris', type: 'ville', lat: 48.8566, lng: 2.3522, arrivalDate: '2026-07-12', arrivalTime: '08:00', departureDate: '2026-07-12', departureTime: '09:00', color: '#2563eb', transportToNext: 'car', order: 0 },
+      { name: 'Lyon', type: 'ville', lat: 45.764, lng: 4.8357, arrivalDate: '2026-07-12', arrivalTime: '14:00', departureDate: '2026-07-14', departureTime: '10:00', color: '#14b8a6', transportToNext: 'train', order: 1 },
+      { name: 'Venise', type: 'ville', lat: 45.4408, lng: 12.3155, arrivalDate: '2026-07-14', arrivalTime: '18:00', departureDate: '2026-07-18', color: '#f97316', order: 2 }
+    ], expenses: [{ label: 'Hôtels', category: 'logement', plannedAmount: 680, paidBy: 'Lucas', splitBetween: ['Lucas', 'Marie'] }] });
+    state = Storage.upsertTrip(state, trip);
+    persist('Voyage exemple ajouté.');
   }
 
   async function deleteTrip(id) {
-    if (!requireCloudReady()) return;
-    const trip = state.trips.find(item => item.id === id);
-    const ok = await confirmAction('Supprimer ce voyage ?', `“${trip?.name || 'Voyage'}” sera supprimé de Firebase pour ton compte Google.`);
-    if (!ok) return;
-    state = Storage.deleteTrip(state, id);
-    renderAll();
-    scheduleCloudAutosave();
-    showStatus('Voyage supprimé.');
+    const trip = state.trips.find(t => t.id === id);
+    if (!await confirmAction('Supprimer ce voyage ?', `“${trip?.name || 'Voyage'}” sera supprimé.`)) return;
+    state = Storage.deleteTrip(state, id); persist('Voyage supprimé.');
   }
 
   function renderSteps() {
+    const list = $('#stepsList'); if (!list) return;
     const trip = activeTrip();
-    const list = $('#stepsList');
-    if (!trip) {
-      list.innerHTML = '<div class="empty-state">Crée ou sélectionne un voyage pour ajouter des étapes.</div>';
-      return;
-    }
-    const steps = U.sortSteps(trip.steps);
-    if (!steps.length) {
-      list.innerHTML = '<div class="empty-state">Ajoute un départ, des arrêts et une destination finale.</div>';
-      return;
-    }
-    list.innerHTML = steps.map((step, index) => `
-      <article class="step-row">
-        <div class="step-marker" style="background:${step.color || '#2563eb'}">${index + 1}</div>
-        <div>
-          <span class="badge">${U.escapeHtml(step.type)} · ${U.escapeHtml(step.priority)}</span>
-          <h3>${U.escapeHtml(step.name)}</h3>
-          <p>${U.formatDate(step.arrivalDate)} → ${U.formatDate(step.departureDate)} · ${U.isValidCoord(step) ? `${step.lat}, ${step.lng}` : 'coordonnées manquantes'}${step.cost ? ` · ${U.formatMoney(step.cost, trip.currency)}` : ''}</p>
-          ${step.notes ? `<p>${U.escapeHtml(step.notes)}</p>` : ''}
-        </div>
-        <div class="row-actions">
-          <button class="button" data-move-step="up" data-step-id="${step.id}" ${index === 0 ? 'disabled' : ''}>↑</button>
-          <button class="button" data-move-step="down" data-step-id="${step.id}" ${index === steps.length - 1 ? 'disabled' : ''}>↓</button>
-          <button class="button" data-edit-step="${step.id}">Modifier</button>
-          <button class="button" data-delete-step="${step.id}">Supprimer</button>
-        </div>
-      </article>
-    `).join('');
-    list.querySelectorAll('[data-edit-step]').forEach(button => button.addEventListener('click', () => openStepDialog(button.dataset.editStep)));
-    list.querySelectorAll('[data-delete-step]').forEach(button => button.addEventListener('click', () => deleteStep(button.dataset.deleteStep)));
-    list.querySelectorAll('[data-move-step]').forEach(button => button.addEventListener('click', () => moveStep(button.dataset.stepId, button.dataset.moveStep)));
+    if (!trip) { list.innerHTML = '<div class="empty-state">Sélectionne un voyage.</div>'; return; }
+    const steps = U.sortSteps(trip.steps || []);
+    if (!steps.length) { list.innerHTML = '<div class="empty-state">Ajoute un départ, des arrêts et une destination finale.</div>'; return; }
+    list.innerHTML = steps.map((step, index) => `<article class="step-row"><div class="step-marker" style="background:${step.color || '#2563eb'}">${index + 1}</div><div><span class="badge">${U.escapeHtml(step.type)} · ${U.escapeHtml(step.priority)}</span><h3>${U.escapeHtml(step.name)}</h3><p>Arrivée : ${U.formatDate(step.arrivalDate)}${step.arrivalTime ? ` · ${step.arrivalTime}` : ''} · Départ : ${U.formatDate(step.departureDate)}${step.departureTime ? ` · ${step.departureTime}` : ''}</p><p>${U.escapeHtml(step.address || (U.isValidCoord(step) ? `${step.lat}, ${step.lng}` : 'coordonnées manquantes'))}</p></div><div class="row-actions"><button class="button" data-move-step="up" data-step-id="${step.id}" ${index === 0 ? 'disabled' : ''}>↑</button><button class="button" data-move-step="down" data-step-id="${step.id}" ${index === steps.length - 1 ? 'disabled' : ''}>↓</button><button class="button" data-edit-step="${step.id}">Modifier</button><button class="button" data-delete-step="${step.id}">Supprimer</button></div></article>`).join('');
+    list.querySelectorAll('[data-edit-step]').forEach(btn => btn.addEventListener('click', () => openStepDialog(btn.dataset.editStep)));
+    list.querySelectorAll('[data-delete-step]').forEach(btn => btn.addEventListener('click', () => deleteStep(btn.dataset.deleteStep)));
+    list.querySelectorAll('[data-move-step]').forEach(btn => btn.addEventListener('click', () => moveStep(btn.dataset.stepId, btn.dataset.moveStep)));
   }
 
-  function openStepDialog(stepId = null, presetDate = '') {
-    const trip = activeTrip();
-    if (!trip) return showStatus('Crée d’abord un voyage.');
-    const form = $('#stepForm');
+  function openStepDialog(stepId = null, date = '') {
+    const trip = activeTrip(); if (!trip) return showStatus('Crée d’abord un voyage.');
+    const form = $('#stepForm'); if (!form) return;
     form.reset();
-    const step = trip.steps.find(item => item.id === stepId);
+    const step = trip.steps.find(s => s.id === stepId);
     $('#stepDialogTitle').textContent = step ? 'Modifier une étape' : 'Ajouter une étape';
-    form.elements.id.value = step?.id || '';
-    form.elements.name.value = step?.name || '';
-    form.elements.type.value = step?.type || 'ville';
-    form.elements.lat.value = step?.lat ?? '';
-    form.elements.lng.value = step?.lng ?? '';
-    if (form.elements.address) form.elements.address.value = step?.address || '';
-    if (form.elements.arrivalTime) form.elements.arrivalTime.value = step?.arrivalTime || '';
-    if (form.elements.departureTime) form.elements.departureTime.value = step?.departureTime || '';
-    form.elements.arrivalDate.value = step?.arrivalDate || presetDate || '';
-    form.elements.departureDate.value = step?.departureDate || presetDate || '';
-    updateStepDateStatus();
-    form.elements.duration.value = step?.duration || '';
-    form.elements.cost.value = step?.cost || '';
-    form.elements.priority.value = step?.priority || 'optionnel';
-    form.elements.color.value = step?.color || '#2563eb';
-    form.elements.links.value = (step?.links || []).join(', ');
-    form.elements.notes.value = step?.notes || '';
-    $('#stepDialog').showModal();
+    ['id','name','type','address','lat','lng','arrivalDate','arrivalTime','departureDate','departureTime','duration','cost','priority','color','links','notes'].forEach(key => { if (form.elements[key]) form.elements[key].value = ''; });
+    if (step) {
+      Object.entries(step).forEach(([key, val]) => { if (form.elements[key]) form.elements[key].value = Array.isArray(val) ? val.join(', ') : val ?? ''; });
+    } else if (date) { form.elements.arrivalDate.value = date; form.elements.departureDate.value = date; }
+    form.elements.type.value ||= 'ville'; form.elements.priority.value ||= 'optionnel'; form.elements.color.value ||= '#2563eb';
+    $('#stepDialog')?.showModal();
+  }
+
+  function validStepDates(data) {
+    const aDate = String(data.get('arrivalDate') || ''); const dDate = String(data.get('departureDate') || aDate || '');
+    const aTime = String(data.get('arrivalTime') || '00:00'); const dTime = String(data.get('departureTime') || '23:59');
+    if (aDate && dDate && new Date(`${dDate}T${dTime}`) < new Date(`${aDate}T${aTime}`)) return false;
+    return true;
   }
 
   function saveStepForm(event) {
-    event.preventDefault();
-    if (!requireCloudReady()) return;
-    const trip = activeTrip();
-    if (!trip) return;
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const id = data.get('id') || U.uid('step');
-    const existing = trip.steps.find(step => step.id === id);
-    const step = {
-      ...(existing || {}),
-      id,
-      order: existing?.order ?? trip.steps.length,
-      name: String(data.get('name') || 'Étape'),
-      type: String(data.get('type') || 'ville'),
-      lat: data.get('lat') === '' ? '' : Number(data.get('lat')),
-      lng: data.get('lng') === '' ? '' : Number(data.get('lng')),
-      address: String(data.get('address') || ''),
-      arrivalDate: String(data.get('arrivalDate') || ''),
-      arrivalTime: String(data.get('arrivalTime') || ''),
-      departureDate: String(data.get('departureDate') || ''),
-      departureTime: String(data.get('departureTime') || ''),
-      duration: String(data.get('duration') || ''),
-      cost: Number(data.get('cost')) || 0,
-      priority: String(data.get('priority') || 'optionnel'),
-      color: String(data.get('color') || '#2563eb'),
-      links: U.linksToArray(data.get('links')),
-      notes: String(data.get('notes') || ''),
-      transportToNext: existing?.transportToNext || 'car',
-      segmentCost: existing?.segmentCost || 0,
-      segmentNote: existing?.segmentNote || '',
-      journal: existing?.journal || { notes: '', photoLinks: '', rating: '', realExpenses: '', weather: '', afterthoughts: '' }
-    };
-    const validation = validateStepDates(step);
-    if (!validation.ok) {
-      showStatus(validation.message);
-      updateStepDateStatus(validation.message);
-      return;
-    }
-    const index = trip.steps.findIndex(item => item.id === id);
-    if (index >= 0) trip.steps[index] = step;
-    else trip.steps.push(step);
-    normalizeOrders(trip);
-    $('#stepDialog').close();
-    persist('Étape enregistrée.');
+    event.preventDefault(); if (!requireCloudReady()) return;
+    const trip = activeTrip(); const data = new FormData(event.currentTarget);
+    if (!validStepDates(data)) return showStatus('Le départ ne peut pas être avant l’arrivée.', 4200);
+    const id = data.get('id') || U.uid('step'); const existing = trip.steps.find(s => s.id === id);
+    const step = { ...(existing || {}), id, order: existing?.order ?? trip.steps.length, name: String(data.get('name') || 'Étape'), type: String(data.get('type') || 'ville'), address: String(data.get('address') || ''), lat: data.get('lat') === '' ? '' : Number(data.get('lat')), lng: data.get('lng') === '' ? '' : Number(data.get('lng')), arrivalDate: String(data.get('arrivalDate') || ''), arrivalTime: String(data.get('arrivalTime') || ''), departureDate: String(data.get('departureDate') || data.get('arrivalDate') || ''), departureTime: String(data.get('departureTime') || ''), duration: String(data.get('duration') || ''), cost: Number(data.get('cost')) || 0, priority: String(data.get('priority') || 'optionnel'), color: String(data.get('color') || '#2563eb'), links: U.linksToArray(data.get('links')), notes: String(data.get('notes') || ''), transportToNext: existing?.transportToNext || 'car', segmentCost: Number(existing?.segmentCost) || 0, segmentNote: existing?.segmentNote || '', journal: existing?.journal || {} };
+    const index = trip.steps.findIndex(s => s.id === id); if (index >= 0) trip.steps[index] = step; else trip.steps.push(step);
+    normalizeOrders(trip); $('#stepDialog')?.close(); persist('Étape enregistrée.');
   }
 
-  async function deleteStep(id) {
-    if (!requireCloudReady()) return;
-    const trip = activeTrip();
-    const step = trip?.steps.find(item => item.id === id);
-    const ok = await confirmAction('Supprimer cette étape ?', `“${step?.name || 'Étape'}” sera retirée de la carte, de l’itinéraire et du carnet.`);
-    if (!ok) return;
-    trip.steps = trip.steps.filter(item => item.id !== id);
-    trip.expenses = trip.expenses.map(expense => expense.stepId === id ? { ...expense, stepId: '' } : expense);
-    normalizeOrders(trip);
-    persist('Étape supprimée.');
-  }
+  async function deleteStep(id) { const trip = activeTrip(); if (!trip) return; if (!await confirmAction('Supprimer cette étape ?', 'Elle sera retirée du planning.')) return; trip.steps = trip.steps.filter(s => s.id !== id); normalizeOrders(trip); persist('Étape supprimée.'); }
+  function moveStep(id, direction) { const trip = activeTrip(); if (!trip) return; const steps = U.sortSteps(trip.steps); const i = steps.findIndex(s => s.id === id); const j = direction === 'up' ? i - 1 : i + 1; if (i < 0 || j < 0 || j >= steps.length) return; [steps[i], steps[j]] = [steps[j], steps[i]]; trip.steps = steps.map((s, order) => ({ ...s, order })); persist('Ordre mis à jour.'); }
+  function normalizeOrders(trip) { trip.steps = U.sortSteps(trip.steps || []).map((s, order) => ({ ...s, order })); }
 
-  function moveStep(id, direction) {
-    if (!requireCloudReady()) return;
-    const trip = activeTrip();
-    const steps = U.sortSteps(trip.steps);
-    const index = steps.findIndex(step => step.id === id);
-    const target = direction === 'up' ? index - 1 : index + 1;
-    if (index < 0 || target < 0 || target >= steps.length) return;
-    [steps[index], steps[target]] = [steps[target], steps[index]];
-    trip.steps = steps.map((step, order) => ({ ...step, order }));
-    persist('Ordre des étapes mis à jour.');
-  }
-
-  function normalizeOrders(trip) {
-    trip.steps = U.sortSteps(trip.steps).map((step, order) => ({ ...step, order }));
-  }
-
-  function renderItinerary() {
-    const trip = activeTrip();
-    Itinerary.renderSummary($('#itinerarySummary'), trip, state.settings);
-    Itinerary.renderDayPlanner($('#dayPlannerBoard'), trip, state.settings, {
-      addStep: date => openStepDialog(null, date),
-      editStep: openStepDialog,
-      moveStepToDay: (stepId, date) => {
-        const current = activeTrip();
-        const step = current?.steps.find(item => item.id === stepId);
-        if (!step) return;
-        step.arrivalDate = date;
-        if (!step.departureDate || step.departureDate < date) step.departureDate = date;
-        persist('Étape déplacée.');
-      }
-    });
-    Itinerary.renderItinerary($('#itineraryList'), trip, state.settings, (stepId, field, value) => {
-      const current = activeTrip();
-      const step = current?.steps.find(item => item.id === stepId);
-      if (!step) return;
-      step[field] = field === 'segmentCost' ? Number(value) || 0 : value;
-      persist('Segment mis à jour.');
-    });
-  }
+  function renderItinerary() { const trip = activeTrip(); if ($('#itinerarySummary')) Itinerary.renderSummary($('#itinerarySummary'), trip, state.settings); if ($('#dayPlannerBoard')) Itinerary.renderDayPlanner($('#dayPlannerBoard'), trip, state.settings, { editStep: openStepDialog, addStep: date => openStepDialog(null, date) }); if ($('#itineraryList')) Itinerary.renderItinerary($('#itineraryList'), trip, state.settings, updateSegment); }
+  function updateSegment(stepId, field, value) { const step = activeTrip()?.steps.find(s => s.id === stepId); if (!step) return; step[field] = field === 'segmentCost' ? Number(value) || 0 : value; persist('Trajet mis à jour.'); }
 
   function renderBudget() {
     const trip = activeTrip();
-    Budget.renderStats($('#budgetStats'), trip);
+    if ($('#budgetStats')) Budget.renderStats($('#budgetStats'), trip);
+    if ($('#budgetDaily')) Budget.renderDaily($('#budgetDaily'), trip);
+    if ($('#budgetPeople')) Budget.renderPeople($('#budgetPeople'), trip);
+    if ($('#budgetBreakdown')) Budget.renderBreakdown($('#budgetBreakdown'), trip);
+    if ($('#budgetChart')) Budget.drawChart($('#budgetChart'), trip);
+    if ($('#expensesList')) Budget.renderExpenses($('#expensesList'), trip, { edit: openExpenseDialog, delete: deleteExpense });
     renderBudgetAlerts(trip);
-    Budget.renderDaily($('#budgetDaily'), trip);
-    Budget.renderPeople($('#budgetPeople'), trip);
-    Budget.renderBreakdown($('#budgetBreakdown'), trip);
-    Budget.drawChart($('#budgetChart'), trip);
-    Budget.renderExpenses($('#expensesList'), trip, { edit: openExpenseDialog, delete: deleteExpense });
   }
-
   function renderBudgetAlerts(trip) {
-    const container = $('#budgetAlerts');
-    if (!container) return;
-    if (!trip) {
-      container.innerHTML = '';
-      return;
-    }
-    const budget = Budget.computeBudget(trip);
-    const alerts = [];
-    if (budget.max && budget.total > budget.max) alerts.push(`Budget prévu dépassé de ${U.formatMoney(budget.total - budget.max, trip.currency)}.`);
-    if (budget.actualTotal > budget.plannedTotal && budget.plannedTotal > 0) alerts.push(`Les dépenses réelles dépassent le prévu de ${U.formatMoney(budget.actualTotal - budget.plannedTotal, trip.currency)}.`);
-    const names = budget.names || [];
-    const unbalanced = names.filter(name => Math.abs(budget.balances?.[name]?.balance || 0) > 1);
-    if (unbalanced.length > 1) alerts.push('Répartition type TriCount : certaines personnes doivent équilibrer les paiements.');
-    container.innerHTML = alerts.length ? alerts.map(text => `<div class="budget-alert">⚠️ ${U.escapeHtml(text)}</div>`).join('') : '<div class="budget-ok">✅ Budget cohérent pour le moment.</div>';
+    const el = $('#budgetAlerts'); if (!el) return; if (!trip) { el.innerHTML = ''; return; }
+    const b = Budget.computeBudget(trip); const alerts = [];
+    if (b.max && b.plannedTotal > b.max) alerts.push(`Budget prévu dépassé de ${U.formatMoney(b.plannedTotal - b.max, trip.currency)}.`);
+    if (b.actualTotal > b.plannedTotal && b.actualTotal > 0) alerts.push(`Le réel dépasse le prévu de ${U.formatMoney(b.actualTotal - b.plannedTotal, trip.currency)}.`);
+    el.innerHTML = alerts.length ? alerts.map(a => `<div class="status-banner status-banner--compact">${U.escapeHtml(a)}</div>`).join('') : '';
   }
 
   function openExpenseDialog(expenseId = null) {
-    const trip = activeTrip();
-    if (!trip) return showStatus('Crée d’abord un voyage.');
-    const form = $('#expenseForm');
-    form.reset();
-    const names = Budget.travellerNames(trip);
-    form.elements.stepId.innerHTML = '<option value="">Aucune étape</option>' + U.sortSteps(trip.steps).map(step => `<option value="${step.id}">${U.escapeHtml(step.name)}</option>`).join('');
+    const trip = activeTrip(); if (!trip) return showStatus('Crée d’abord un voyage.'); const form = $('#expenseForm'); if (!form) return; form.reset();
+    const names = Budget.travellerNames(trip); const expense = trip.expenses.find(e => e.id === expenseId);
     form.elements.paidBy.innerHTML = '<option value="">Non renseigné</option>' + names.map(name => `<option value="${U.escapeHtml(name)}">${U.escapeHtml(name)}</option>`).join('');
-    const expense = trip.expenses.find(item => item.id === expenseId);
+    form.elements.stepId.innerHTML = '<option value="">Aucune étape</option>' + U.sortSteps(trip.steps).map(s => `<option value="${s.id}">${U.escapeHtml(s.name)}</option>`).join('');
+    $('#expenseSplitPeople').innerHTML = names.map(name => `<label class="chip-check"><input type="checkbox" name="splitBetween" value="${U.escapeHtml(name)}" checked><span>${U.escapeHtml(name)}</span></label>`).join('');
     $('#expenseDialogTitle').textContent = expense ? 'Modifier une dépense' : 'Ajouter une dépense';
-    form.elements.id.value = expense?.id || '';
-    form.elements.label.value = expense?.label || '';
-    form.elements.category.value = expense?.category || 'autres';
-    form.elements.plannedAmount.value = expense?.plannedAmount ?? expense?.amount ?? '';
-    form.elements.actualAmount.value = expense?.actualAmount ?? expense?.realAmount ?? '';
-    form.elements.status.value = expense?.status || 'prévue';
-    form.elements.paidBy.value = expense?.paidBy || '';
-    form.elements.date.value = expense?.date || '';
-    form.elements.stepId.value = expense?.stepId || '';
-    form.elements.note.value = expense?.note || '';
-    const split = new Set(expense?.splitBetween || expense?.splitWith || names);
-    $('#expenseSplitPeople').innerHTML = names.map(name => `
-      <label class="chip-check"><input type="checkbox" name="splitBetween" value="${U.escapeHtml(name)}" ${split.has(name) ? 'checked' : ''} /> <span>${U.escapeHtml(name)}</span></label>
-    `).join('');
-    $('#expenseDialog').showModal();
+    if (expense) { ['id','label','category','plannedAmount','actualAmount','status','paidBy','date','stepId','note'].forEach(k => { if (form.elements[k]) form.elements[k].value = expense[k] ?? ''; }); $('#expenseSplitPeople').querySelectorAll('input').forEach(input => input.checked = !expense.splitBetween?.length || expense.splitBetween.includes(input.value)); }
+    $('#expenseDialog')?.showModal();
   }
+  function saveExpenseForm(event) { event.preventDefault(); if (!requireCloudReady()) return; const trip = activeTrip(); const data = new FormData(event.currentTarget); const id = data.get('id') || U.uid('expense'); const expense = { id, label: String(data.get('label') || 'Dépense'), category: String(data.get('category') || 'autres'), plannedAmount: Number(data.get('plannedAmount')) || 0, amount: Number(data.get('plannedAmount')) || 0, actualAmount: data.get('actualAmount') === '' ? '' : Number(data.get('actualAmount')) || 0, status: String(data.get('status') || 'prévue'), paidBy: String(data.get('paidBy') || ''), splitBetween: data.getAll('splitBetween'), date: String(data.get('date') || ''), stepId: String(data.get('stepId') || ''), note: String(data.get('note') || '') }; const index = trip.expenses.findIndex(e => e.id === id); if (index >= 0) trip.expenses[index] = expense; else trip.expenses.push(expense); $('#expenseDialog')?.close(); persist('Dépense enregistrée.'); }
+  async function deleteExpense(id) { const trip = activeTrip(); if (!trip) return; if (!await confirmAction('Supprimer cette dépense ?', 'Elle sera retirée du budget.')) return; trip.expenses = trip.expenses.filter(e => e.id !== id); persist('Dépense supprimée.'); }
 
-  function saveExpenseForm(event) {
-    event.preventDefault();
-    if (!requireCloudReady()) return;
-    const trip = activeTrip();
-    if (!trip) return;
-    const data = new FormData(event.currentTarget);
-    const id = data.get('id') || U.uid('expense');
-    const plannedAmount = Number(data.get('plannedAmount')) || 0;
-    const actualAmount = Number(data.get('actualAmount')) || 0;
-    const expense = {
-      id,
-      label: String(data.get('label') || 'Dépense'),
-      category: String(data.get('category') || 'autres'),
-      plannedAmount,
-      actualAmount,
-      amount: plannedAmount,
-      status: String(data.get('status') || 'prévue'),
-      paidBy: String(data.get('paidBy') || ''),
-      splitBetween: data.getAll('splitBetween').map(String),
-      date: String(data.get('date') || ''),
-      stepId: String(data.get('stepId') || ''),
-      note: String(data.get('note') || '')
-    };
-    const index = trip.expenses.findIndex(item => item.id === id);
-    if (index >= 0) trip.expenses[index] = expense;
-    else trip.expenses.push(expense);
-    $('#expenseDialog').close();
-    persist('Dépense enregistrée.');
-  }
-
-  async function deleteExpense(id) {
-    if (!requireCloudReady()) return;
-    const ok = await confirmAction('Supprimer cette dépense ?', 'Elle sera retirée du calcul du budget.');
-    if (!ok) return;
-    const trip = activeTrip();
-    trip.expenses = trip.expenses.filter(item => item.id !== id);
-    persist('Dépense supprimée.');
-  }
-
-  function renderSuggestions() {
-    Suggestions.render($('#scorePanel'), $('#suggestionsList'), activeTrip(), state.settings, { onFix: applySuggestionFix });
-  }
-
-  function applySuggestionFix(action) {
-    if (!requireCloudReady()) return;
-    const trip = activeTrip();
-    if (!trip || !action) return;
-    trip.checklists ||= U.createDefaultChecklists();
-    trip.expenses ||= [];
-    const addTask = (listName, text) => {
-      trip.checklists[listName] ||= [];
-      if (!trip.checklists[listName].some(item => String(item.text || '').toLowerCase() === text.toLowerCase())) {
-        trip.checklists[listName].push({ id: U.uid('todo'), text, done: false });
-      }
-    };
-    if (action === 'budget-basics') {
-      ['transport','logement','nourriture'].forEach(category => {
-        if (!trip.expenses.some(expense => expense.category === category)) {
-          trip.expenses.push({ id: U.uid('expense'), label: `Budget ${category}`, category, plannedAmount: 0, actualAmount: 0, amount: 0, status: 'prévue', date: '', paidBy: '', splitBetween: Budget.travellerNames(trip), note: 'Ajouté automatiquement depuis l’assistant.' });
-        }
-      });
-      persist('Postes de budget ajoutés.');
-      switchView('budget');
-      return;
-    }
-    if (action === 'airport-task') {
-      addTask('avion', 'Vérifier numéro de vol, terminal et marge avant départ');
-      addTask('transferts', 'Prévoir le transfert aéroport ↔ logement');
-      persist('Tâches aéroport ajoutées.');
-      switchView('preparation');
-      return;
-    }
-    if (action === 'hotel-task') {
-      addTask('logement', 'Ajouter ou vérifier les hébergements de chaque nuit');
-      persist('Tâche logement ajoutée.');
-      switchView('preparation');
-      return;
-    }
-    if (action === 'prep-task') {
-      addTask('avant départ', 'Vérifier les documents, réservations, budget et transports');
-      persist('Tâche de préparation ajoutée.');
-      switchView('preparation');
-      return;
-    }
-    if (action === 'time-check') {
-      addTask('planning', 'Vérifier les horaires incohérents ou trop serrés');
-      persist('Tâche horaire ajoutée.');
-      switchView('itinerary');
-      return;
-    }
-    if (action === 'comfort-transfer') {
-      addTask('transferts', 'Ajouter les horaires et notes de transfert pour les trajets importants');
-      persist('Tâche transfert ajoutée.');
-      switchView('preparation');
-      return;
-    }
-    addTask('avant départ', 'Vérifier : ' + action);
-    persist('Tâche ajoutée.');
-  }
-
-
-  async function optimizeActiveTrip() {
-    if (!requireCloudReady()) return;
-    const trip = activeTrip();
-    if (!trip || trip.steps.length < 3) return showStatus('Il faut au moins trois étapes pour optimiser le parcours.');
-    const optimized = Suggestions.optimizeOrder(trip, state.settings);
-    const before = Suggestions.compareRouteDistance(trip.steps, state.settings);
-    const after = Suggestions.compareRouteDistance(optimized, state.settings);
-    const message = after && before
-      ? `Distance estimée actuelle : ${U.formatDistance(before)}. Proposition : ${U.formatDistance(after)}. Le premier et le dernier point restent fixes.`
-      : 'Une proposition d’ordre plus logique va remplacer l’ordre actuel. Le premier et le dernier point restent fixes.';
-    const ok = await confirmAction('Appliquer l’optimisation ?', message);
-    if (!ok) return;
-    trip.steps = optimized;
-    persist('Ordre optimisé appliqué.');
-  }
+  function renderSuggestions() { if ($('#scorePanel')) Suggestions.render($('#scorePanel'), $('#suggestionsList'), activeTrip(), state.settings); }
+  async function optimizeActiveTrip() { const trip = activeTrip(); if (!trip || trip.steps.length < 3) return showStatus('Ajoute au moins trois étapes.'); if (!await confirmAction('Optimiser l’ordre ?', 'Le premier et le dernier point restent fixes.')) return; trip.steps = Suggestions.optimizeOrder(trip, state.settings); persist('Ordre optimisé.'); }
 
   function renderChecklists() {
-    const trip = activeTrip();
-    const container = $('#checklists');
-    if (!trip) {
-      container.innerHTML = '<div class="empty-state">Sélectionne un voyage pour gérer les checklists.</div>';
-      return;
-    }
+    const el = $('#checklists'); if (!el) return; const trip = activeTrip(); if (!trip) { el.innerHTML = '<div class="empty-state">Sélectionne un voyage.</div>'; return; }
     trip.checklists ||= U.createDefaultChecklists();
-    container.innerHTML = Object.entries(trip.checklists).map(([category, items]) => `
-      <article class="checklist">
-        <h3>${U.escapeHtml(category)}</h3>
-        ${(items || []).map(item => `
-          <label>
-            <input type="checkbox" data-check-category="${U.escapeHtml(category)}" data-check-id="${item.id}" ${item.done ? 'checked' : ''} />
-            <span contenteditable="true" data-check-text="${item.id}" data-check-category="${U.escapeHtml(category)}">${U.escapeHtml(item.text)}</span>
-          </label>
-        `).join('')}
-      </article>
-    `).join('');
-    container.querySelectorAll('[data-check-id]').forEach(input => input.addEventListener('change', () => {
-      const list = trip.checklists[input.dataset.checkCategory] || [];
-      const item = list.find(entry => entry.id === input.dataset.checkId);
-      if (item) item.done = input.checked;
-      state = Storage.save(state);
-      renderSuggestions();
-      scheduleCloudAutosave();
-    }));
-    container.querySelectorAll('[data-check-text]').forEach(span => span.addEventListener('blur', () => {
-      const list = trip.checklists[span.dataset.checkCategory] || [];
-      const item = list.find(entry => entry.id === span.dataset.checkText);
-      if (item) item.text = span.textContent.trim() || item.text;
-      state = Storage.save(state);
-      scheduleCloudAutosave();
-    }));
+    el.innerHTML = Object.entries(trip.checklists).map(([cat, items]) => `<article class="checklist"><div class="checklist__head"><h3 contenteditable="true" data-checklist-title="${U.escapeHtml(cat)}">${U.escapeHtml(cat)}</h3><button class="button" data-delete-block="${U.escapeHtml(cat)}">Supprimer</button></div>${(items || []).map(item => `<label><input type="checkbox" data-check-id="${item.id}" data-check-category="${U.escapeHtml(cat)}" ${item.done ? 'checked' : ''}><span contenteditable="true" data-check-text="${item.id}" data-check-category="${U.escapeHtml(cat)}">${U.escapeHtml(item.text)}</span><button class="mini-delete" data-delete-task="${item.id}" data-check-category="${U.escapeHtml(cat)}" type="button">×</button></label>`).join('')}<button class="button" data-add-task="${U.escapeHtml(cat)}">+ tâche</button></article>`).join('');
+    el.querySelectorAll('[data-check-id]').forEach(input => input.addEventListener('change', () => { const item = trip.checklists[input.dataset.checkCategory]?.find(i => i.id === input.dataset.checkId); if (item) item.done = input.checked; persist('Checklist mise à jour.'); }));
+    el.querySelectorAll('[data-check-text]').forEach(span => span.addEventListener('blur', () => { const item = trip.checklists[span.dataset.checkCategory]?.find(i => i.id === span.dataset.checkText); if (item) item.text = span.textContent.trim() || item.text; persist('Tâche modifiée.'); }));
+    el.querySelectorAll('[data-add-task]').forEach(btn => btn.addEventListener('click', () => { const text = prompt('Nouvelle tâche ?'); if (!text) return; trip.checklists[btn.dataset.addTask].push({ id: U.uid('todo'), text, done: false }); persist('Tâche ajoutée.'); }));
+    el.querySelectorAll('[data-delete-task]').forEach(btn => btn.addEventListener('click', () => { trip.checklists[btn.dataset.checkCategory] = trip.checklists[btn.dataset.checkCategory].filter(i => i.id !== btn.dataset.deleteTask); persist('Tâche supprimée.'); }));
+    el.querySelectorAll('[data-delete-block]').forEach(btn => btn.addEventListener('click', async () => { if (!await confirmAction('Supprimer ce bloc ?', btn.dataset.deleteBlock)) return; delete trip.checklists[btn.dataset.deleteBlock]; persist('Bloc supprimé.'); }));
   }
+  function addChecklistBlock() { const trip = activeTrip(); if (!trip) return; const name = prompt('Nom du bloc ?', 'Nouvelle liste'); if (!name) return; trip.checklists ||= {}; trip.checklists[name] ||= []; persist('Bloc ajouté.'); }
+  function addChecklistItem() { addChecklistBlock(); }
 
-  function addChecklistItem() {
-    if (!requireCloudReady()) return;
-    const trip = activeTrip();
-    if (!trip) return showStatus('Sélectionne un voyage.');
-    const category = prompt('Dans quelle liste ajouter cet élément ?', 'avant départ');
-    if (!category) return;
-    const text = prompt('Élément à ajouter ?', '');
-    if (!text) return;
-    trip.checklists ||= U.createDefaultChecklists();
-    trip.checklists[category] ||= [];
-    trip.checklists[category].push({ id: U.uid('todo'), text, done: false });
-    persist('Élément ajouté.');
-  }
+  function renderJournal() { const el = $('#journalList'); if (!el) return; const trip = activeTrip(); if (!trip?.steps?.length) { el.innerHTML = '<div class="empty-state">Ajoute des étapes pour créer un carnet.</div>'; return; } el.innerHTML = U.sortSteps(trip.steps).map(step => { step.journal ||= {}; return `<article class="journal-row"><span class="badge">${U.escapeHtml(step.type)}</span><h3>${U.escapeHtml(step.name)}</h3><div class="form-grid mt"><label>Notes<textarea class="input" data-journal-field="notes" data-step-id="${step.id}" rows="3">${U.escapeHtml(step.journal.notes || '')}</textarea></label><label>Photos / liens<textarea class="input" data-journal-field="photoLinks" data-step-id="${step.id}" rows="3">${U.escapeHtml(step.journal.photoLinks || '')}</textarea></label><label>Ressenti<input class="input" data-journal-field="rating" data-step-id="${step.id}" value="${U.escapeHtml(step.journal.rating || '')}"></label><label>Dépenses réelles<input class="input" type="number" data-journal-field="realExpenses" data-step-id="${step.id}" value="${U.escapeHtml(step.journal.realExpenses || '')}"></label></div></article>`; }).join(''); el.querySelectorAll('[data-journal-field]').forEach(field => field.addEventListener('change', () => { const step = trip.steps.find(s => s.id === field.dataset.stepId); step.journal ||= {}; step.journal[field.dataset.journalField] = field.value; persist('Carnet mis à jour.'); })); }
 
-  function renderJournal() {
-    const trip = activeTrip();
-    const container = $('#journalList');
-    if (!trip || !trip.steps.length) {
-      container.innerHTML = '<div class="empty-state">Ajoute des étapes pour créer un carnet de voyage.</div>';
-      return;
-    }
-    container.innerHTML = U.sortSteps(trip.steps).map(step => {
-      step.journal ||= { notes: '', photoLinks: '', rating: '', realExpenses: '', weather: '', afterthoughts: '' };
-      return `
-        <article class="journal-row">
-          <span class="badge">${U.escapeHtml(step.type)}</span>
-          <h3>${U.escapeHtml(step.name)}</h3>
-          <div class="form-grid mt">
-            <label>Notes personnelles<textarea class="input" rows="3" data-journal-field="notes" data-step-id="${step.id}">${U.escapeHtml(step.journal.notes || '')}</textarea></label>
-            <label>Photos / liens<textarea class="input" rows="3" data-journal-field="photoLinks" data-step-id="${step.id}" placeholder="https://...">${U.escapeHtml(step.journal.photoLinks || '')}</textarea></label>
-            <label>Avis / ressenti<input class="input" data-journal-field="rating" data-step-id="${step.id}" value="${U.escapeHtml(step.journal.rating || '')}" placeholder="Super, moyen, à refaire..." /></label>
-            <label>Dépenses réelles<input class="input" type="number" min="0" step="0.01" data-journal-field="realExpenses" data-step-id="${step.id}" value="${U.escapeHtml(step.journal.realExpenses || '')}" /></label>
-            <label>Météo ressentie<input class="input" data-journal-field="weather" data-step-id="${step.id}" value="${U.escapeHtml(step.journal.weather || '')}" placeholder="chaud, pluie, vent..." /></label>
-            <label class="wide">Commentaire après visite<textarea class="input" rows="3" data-journal-field="afterthoughts" data-step-id="${step.id}">${U.escapeHtml(step.journal.afterthoughts || '')}</textarea></label>
-          </div>
-        </article>
-      `;
-    }).join('');
-    container.querySelectorAll('[data-journal-field]').forEach(field => field.addEventListener('change', () => {
-      const step = trip.steps.find(item => item.id === field.dataset.stepId);
-      if (!step) return;
-      step.journal ||= {};
-      step.journal[field.dataset.journalField] = field.value;
-      state = Storage.save(state);
-      scheduleCloudAutosave();
-      showStatus('Carnet mis à jour.');
-    }));
-  }
+  function renderSettings() { $$('#settingsPanel [data-setting]').forEach(input => { const parts = input.dataset.setting.split('.'); input.value = parts.length === 1 ? (state.settings?.[parts[0]] ?? '') : (state.settings?.[parts[0]]?.[parts[1]] ?? ''); }); }
+  function saveSettings() { if (!requireCloudReady()) return; $$('#settingsPanel [data-setting]').forEach(input => { const parts = input.dataset.setting.split('.'); if (parts.length === 1) state.settings[parts[0]] = Number(input.value) || input.value || ''; else { state.settings[parts[0]] ||= {}; state.settings[parts[0]][parts[1]] = Number(input.value) || 0; } }); persist('Paramètres enregistrés.'); }
 
-  function renderSettings() {
-    $$('#settingsPanel [data-setting]').forEach(input => {
-      const [group, key] = input.dataset.setting.split('.');
-      input.value = state.settings?.[group]?.[key] ?? '';
-    });
-  }
-
-  function saveSettings() {
-    if (!requireCloudReady()) return;
-    $$('#settingsPanel [data-setting]').forEach(input => {
-      const [group, key] = input.dataset.setting.split('.');
-      state.settings[group] ||= {};
-      state.settings[group][key] = Number(input.value) || 0;
-    });
-    state = Storage.save(state);
-    renderAll();
-    scheduleCloudAutosave();
-    showStatus('Paramètres enregistrés.');
-  }
-
-  function renderMap() {
-    const trip = activeTrip();
-    MapView.renderFilters($('#mapFilters'), trip, () => renderMap());
-    MapView.renderRoutes?.($('#mapRoutesList'), trip, state.settings, (stepId, field, value) => {
-      const current = activeTrip();
-      const step = current?.steps.find(item => item.id === stepId);
-      if (!step) return;
-      step[field] = field === 'segmentCost' ? Number(value) || 0 : value;
-      persist('Trajet mis à jour.');
-    });
-    MapView.renderMapSteps($('#mapStepsList'), trip);
-    MapView.updateMap(trip, state.settings);
-  }
-
-  function renderTripTemplates() {
-    const container = $('#tripTemplates');
-    if (!container) return;
-    const templates = [
-      { key: 'citybreak', title: 'City break', icon: '🏙️', desc: '2 à 4 jours, visites, restaurants, hôtel central.' },
-      { key: 'roadtrip', title: 'Roadtrip', icon: '🚗', desc: 'Trajets, pauses, carburant, étapes intermédiaires.' },
-      { key: 'plane', title: 'Voyage en avion', icon: '✈️', desc: 'Aéroport, vols, transferts et marges horaires.' },
-      { key: 'nature', title: 'Nature / aventure', icon: '🥾', desc: 'Randonnée, météo, santé, checklist terrain.' }
-    ];
-    container.innerHTML = templates.map(t => `<button type="button" class="template-card" data-template-create="${t.key}"><span>${t.icon}</span><strong>${t.title}</strong><small>${t.desc}</small></button>`).join('');
-    container.querySelectorAll('[data-template-create]').forEach(button => button.addEventListener('click', () => createTripFromTemplate(button.dataset.templateCreate)));
-  }
-
-  function createTripFromTemplate(template = 'citybreak') {
-    if (!requireCloudReady()) return;
-    const presets = {
-      citybreak: { name: 'Nouveau city break', style: 'équilibré', pace: 'normal', interests: 'ville, culture, gastronomie', area: '' },
-      roadtrip: { name: 'Nouveau roadtrip', style: 'aventure', pace: 'normal', interests: 'route, nature, points de vue', area: '' },
-      plane: { name: 'Nouveau voyage en avion', style: 'confort', pace: 'normal', interests: 'ville, culture, transports', area: '' },
-      nature: { name: 'Nouvelle aventure nature', style: 'aventure', pace: 'tranquille', interests: 'nature, randonnée, photo', area: '' }
-    };
-    const trip = Storage.normalizeTrip({ ...(presets[template] || presets.citybreak), currency: '€', travellers: 1, status: 'brouillon', steps: [], expenses: [] });
-    trip.checklists = U.createDefaultChecklists();
-    if (template === 'roadtrip') trip.checklists.voiture ||= [{ id: U.uid('todo'), text: 'Vérifier le véhicule', done: false }];
-    if (template === 'plane') trip.checklists.avion ||= [{ id: U.uid('todo'), text: 'Check-in en ligne', done: false }];
-    if (template === 'nature') trip.checklists.randonnée ||= [{ id: U.uid('todo'), text: 'Vérifier la météo', done: false }];
-    state = Storage.upsertTrip(state, trip);
-    renderAll();
-    scheduleCloudAutosave();
-    switchView('trip');
-    showStatus('Modèle de voyage créé.');
-  }
-
-  function openWizardDialog() {
-    if (!requireCloudReady()) return;
-    const dialog = $('#tripWizardDialog');
-    const form = $('#tripWizardForm');
-    if (!dialog || !form) return;
-    form.reset();
-    dialog.showModal();
-  }
-
-  function saveWizardTrip(event) {
-    event.preventDefault();
-    if (!requireCloudReady()) return;
-    const data = new FormData(event.currentTarget);
-    const template = String(data.get('template') || '');
-    const trip = Storage.normalizeTrip({
-      name: String(data.get('name') || 'Nouveau voyage'),
-      area: String(data.get('area') || ''),
-      coverImage: String(data.get('coverImage') || ''),
-      startDate: String(data.get('startDate') || ''),
-      endDate: String(data.get('endDate') || ''),
-      travellersNames: String(data.get('travellersNames') || ''),
-      travellers: Math.max(1, String(data.get('travellersNames') || '').split(',').filter(Boolean).length || 1),
-      maxBudget: Number(data.get('maxBudget')) || 0,
-      currency: String(data.get('currency') || '€'),
-      style: String(data.get('style') || 'équilibré'),
-      pace: String(data.get('pace') || 'normal'),
-      interests: String(data.get('interests') || ''),
-      description: String(data.get('description') || ''),
-      status: 'brouillon',
-      steps: []
-    });
-    const startName = String(data.get('startPlace') || '').trim();
-    const endName = String(data.get('endPlace') || '').trim();
-    if (startName) trip.steps.push({ order: 0, name: startName, type: template === 'plane' ? 'aéroport' : 'ville', arrivalDate: trip.startDate, departureDate: trip.startDate, color: '#2563eb', priority: 'indispensable', transportToNext: template === 'plane' ? 'plane' : 'car' });
-    if (endName) trip.steps.push({ order: trip.steps.length, name: endName, type: 'ville', arrivalDate: trip.endDate || trip.startDate, departureDate: trip.endDate || trip.startDate, color: '#14b8a6', priority: 'indispensable' });
-    state = Storage.upsertTrip(state, trip);
-    $('#tripWizardDialog').close();
-    renderAll();
-    scheduleCloudAutosave();
-    switchView('itinerary');
-    showStatus('Voyage guidé créé.');
-  }
-
-  function renderGlobalSearch() {
-    const input = $('#globalSearchInput');
-    const box = $('#globalSearchResults');
-    if (!input || !box) return;
-    const query = input.value.trim().toLowerCase();
-    if (!query || !appReady) return hideGlobalSearch();
-    const results = [];
-    (state.trips || []).forEach(trip => {
-      if (`${trip.name} ${trip.area} ${trip.description}`.toLowerCase().includes(query)) results.push({ label: `Voyage · ${trip.name}`, view: 'dashboard', tripId: trip.id });
-      (trip.steps || []).forEach(step => {
-        if (`${step.name} ${step.address} ${step.notes} ${step.type}`.toLowerCase().includes(query)) results.push({ label: `Étape · ${step.name}`, view: 'itinerary', tripId: trip.id });
-      });
-      (trip.expenses || []).forEach(expense => {
-        if (`${expense.label} ${expense.category} ${expense.note}`.toLowerCase().includes(query)) results.push({ label: `Dépense · ${expense.label}`, view: 'budget', tripId: trip.id });
-      });
-    });
-    if (!results.length) return hideGlobalSearch();
-    box.hidden = false;
-    box.innerHTML = results.slice(0, 8).map((result, index) => `<button type="button" data-search-index="${index}">${U.escapeHtml(result.label)}</button>`).join('');
-    box.querySelectorAll('[data-search-index]').forEach(button => button.addEventListener('click', () => {
-      const result = results[Number(button.dataset.searchIndex)];
-      state.activeTripId = result.tripId;
-      state = Storage.save(state);
-      renderAll();
-      switchView(result.view);
-      hideGlobalSearch();
-      input.value = '';
-    }));
-  }
-
-  function hideGlobalSearch() {
-    const box = $('#globalSearchResults');
-    if (box) { box.hidden = true; box.innerHTML = ''; }
-  }
-
-  function addChecklistBlock() {
-    if (!requireCloudReady()) return;
-    const trip = activeTrip();
-    if (!trip) return showStatus('Sélectionne un voyage.');
-    const name = prompt('Nom du nouveau bloc ?', 'nouvelle liste');
-    if (!name) return;
-    trip.checklists ||= U.createDefaultChecklists();
-    if (!trip.checklists[name]) trip.checklists[name] = [];
-    persist('Bloc de préparation ajouté.');
-  }
-
-  function toggleFabMenu() {
-    const menu = $('#fabMenu');
-    if (menu) menu.hidden = !menu.hidden;
-  }
-
-  function closeFabMenu() {
-    const menu = $('#fabMenu');
-    if (menu) menu.hidden = true;
-  }
-
-  function bindShareActions() {
-    const bind = (id, handler) => document.getElementById(id)?.addEventListener('click', handler);
-    bind('createPublicShareBtn', createPublicShare);
-    bind('createPrivateShareBtn', createPrivateShare);
-    bind('copyShareLinkBtn', copyShareLink);
-  }
-
-  function openShareDialog() {
-    if (!requireCloudReady()) return;
-    const dialog = $('#shareDialog');
-    if (!dialog) return showStatus('Module de partage introuvable.');
-    $('#shareLinkInput').value = '';
-    dialog.showModal();
-  }
-
-  function publicTripUrl(kind = 'share') {
-    const trip = activeTrip();
-    if (!trip) return location.href.split('#')[0];
-    return `${location.href.split('#')[0]}#${kind}:${encodeURIComponent(trip.id)}`;
-  }
-
-  function createPublicShare() {
-    $('#shareLinkInput').value = publicTripUrl('share');
-    showStatus('Lien lecture seule préparé.');
-  }
-
-  function createPrivateShare() {
-    $('#shareLinkInput').value = publicTripUrl('collab');
-    showStatus('Lien de collaboration préparé. Vérifie les emails autorisés.');
-  }
-
-  async function copyShareLink() {
-    const value = $('#shareLinkInput')?.value || publicTripUrl('share');
-    try { await navigator.clipboard.writeText(value); showStatus('Lien copié.'); }
-    catch { showStatus('Copie impossible. Sélectionne le lien manuellement.'); }
-  }
-
-  function bindPlaceSearch() {
-    const input = $('#placeSearchInput');
-    const button = $('#placeSearchBtn');
-    if (!input || !button || !window.TravelGeocoder) return;
-    button.addEventListener('click', runPlaceSearch);
-    input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); runPlaceSearch(); } });
-  }
-
-  async function runPlaceSearch() {
-    const input = $('#placeSearchInput');
-    const status = $('#placeSearchStatus');
-    const results = $('#placeSearchResults');
-    const query = input?.value?.trim();
-    if (!query || !window.TravelGeocoder) return;
-    status.textContent = 'Recherche…';
-    results.hidden = true;
-    results.innerHTML = '';
-    try {
-      const items = await window.TravelGeocoder.search(query, { trip: activeTrip() });
-      if (!items.length) {
-        status.textContent = 'Aucun résultat trouvé.';
-        return;
-      }
-      status.textContent = `${items.length} résultat(s)`;
-      results.hidden = false;
-      results.innerHTML = items.slice(0, 6).map((item, index) => `<button type="button" data-place-index="${index}"><strong>${U.escapeHtml(item.name)}</strong><small>${U.escapeHtml(item.address || '')}</small></button>`).join('');
-      results.querySelectorAll('[data-place-index]').forEach(button => button.addEventListener('click', () => applyPlaceResult(items[Number(button.dataset.placeIndex)])));
-    } catch (error) {
-      console.error(error);
-      status.textContent = 'Recherche indisponible pour le moment.';
-    }
-  }
-
-  function applyPlaceResult(item) {
-    const form = $('#stepForm');
-    if (!form || !item) return;
-    form.elements.name.value = item.name || form.elements.name.value;
-    form.elements.address.value = item.address || '';
-    form.elements.lat.value = item.lat || '';
-    form.elements.lng.value = item.lng || '';
-    if (item.type && [...form.elements.type.options].some(option => option.value === item.type)) form.elements.type.value = item.type;
-    $('#placeSearchResults').hidden = true;
-    $('#placeSearchStatus').textContent = 'Lieu appliqué à l’étape.';
-  }
-
-  function bindStepDateGuards() {
-    const form = $('#stepForm');
-    if (!form) return;
-    ['arrivalDate', 'arrivalTime', 'departureDate', 'departureTime'].forEach(name => form.elements[name]?.addEventListener('change', () => {
-      normalizeStepDatesInForm(form);
-      updateStepDateStatus();
-    }));
-  }
-
-  function normalizeStepDatesInForm(form) {
-    if (!form) return;
-    const arrivalDate = form.elements.arrivalDate.value;
-    if (arrivalDate && !form.elements.departureDate.value) form.elements.departureDate.value = arrivalDate;
-    if (arrivalDate && form.elements.departureDate.value && form.elements.departureDate.value < arrivalDate) form.elements.departureDate.value = arrivalDate;
-    if (arrivalDate && form.elements.departureDate.value === arrivalDate && form.elements.arrivalTime.value && form.elements.departureTime.value && form.elements.departureTime.value < form.elements.arrivalTime.value) {
-      form.elements.departureTime.value = form.elements.arrivalTime.value;
-    }
-  }
-
-  function validateStepDates(step) {
-    if (!step.arrivalDate || !step.departureDate) return { ok: true };
-    if (step.departureDate < step.arrivalDate) return { ok: false, message: 'Le départ ne peut pas être avant l’arrivée.' };
-    if (step.departureDate === step.arrivalDate && step.arrivalTime && step.departureTime && step.departureTime < step.arrivalTime) return { ok: false, message: 'L’heure de départ ne peut pas être avant l’heure d’arrivée.' };
-    return { ok: true };
-  }
-
-  function updateStepDateStatus(message = '') {
-    const status = $('#stepDateStatus');
-    if (!status) return;
-    if (message) {
-      status.textContent = message;
-      status.classList.add('is-error');
-      return;
-    }
-    status.classList.remove('is-error');
-    status.textContent = 'Indique quand tu arrives sur place, puis quand tu repars. Le départ ne peut pas être avant l’arrivée.';
-  }
-
-  function renderLegalYear() {
-    const year = $('#legalYear');
-    if (year) year.textContent = new Date().getFullYear();
-  }
-
-  function bindCloudActions() {
-    if (!CloudSync) return;
-    const bind = (id, handler) => {
-      const element = document.getElementById(id);
-      if (element) element.addEventListener('click', handler);
-    };
-    bind('cloudAuthBtn', handleCloudAuth);
-    bind('cloudSignInBtn', handleCloudSignIn);
-    bind('cloudSignOutBtn', handleCloudSignOut);
-  }
+  function renderMap() { const trip = activeTrip(); if ($('#mapFilters')) MapView.renderFilters($('#mapFilters'), trip, renderMap); if ($('#mapStepsList')) MapView.renderMapSteps($('#mapStepsList'), trip); if ($('#mapRoutesList')) MapView.renderMapRoutes($('#mapRoutesList'), trip, state.settings, (stepId, mode) => { const step = trip?.steps.find(s => s.id === stepId); if (step) { step.transportToNext = mode; persist('Transport mis à jour.'); } }); MapView.updateMap(trip, state.settings); }
 
   async function initCloudSync() {
-    if (!CloudSync) {
-      cloudLoading = false;
-      showStatus('Module Firebase introuvable.');
-      renderAll();
-      return;
-    }
-
-    CloudSync.onAuthChange(payload => {
-      updateCloudUi(payload);
-      handleCloudUserChange(payload.user).catch(error => {
-        console.error(error);
-        cloudLoading = false;
-        appReady = false;
-        updateCloudUi({ status: error.message });
-        renderAll();
-        showStatus(error.message || 'Chargement Firebase impossible.');
-      });
-    });
-
-    try {
-      if (!CloudSync.isConfigured()) {
-        cloudLoading = false;
-        appReady = false;
-        updateCloudUi({ configured: false, status: 'Firebase n’est pas configuré dans js/firebase-config.js.' });
-        renderAll();
-        return;
-      }
-      await CloudSync.init();
-      await CloudSync.waitForAuthState();
-    } catch (error) {
-      console.error(error);
-      cloudLoading = false;
-      appReady = false;
-      updateCloudUi({ status: error.message, configured: false });
-      renderAll();
-      showStatus(error.message || 'Initialisation Firebase impossible.');
-    }
+    if (!CloudSync) { cloudLoading = false; showStatus('Module Firebase indisponible.'); renderAllSafe(); return; }
+    CloudSync.onAuthChange(payload => { updateCloudUi(payload); handleCloudUserChange(payload.user).catch(error => { console.error(error); cloudLoading = false; appReady = false; updateCloudUi({ status: friendlyFirebaseError(error), kind: 'error' }); renderAllSafe(); }); });
+    try { await CloudSync.init(); await CloudSync.waitForAuthState(); }
+    catch (error) { console.error(error); cloudLoading = false; appReady = false; updateCloudUi({ status: friendlyFirebaseError(error), kind: 'error' }); renderAllSafe(); }
   }
+  async function handleCloudUserChange(user) { if (!user) { loadedCloudUid = null; appReady = false; cloudLoading = false; state = Storage.createEmptyState(); renderAllSafe(); return; } if (loadedCloudUid === user.uid && appReady) return; loadedCloudUid = user.uid; cloudLoading = true; appReady = false; renderAllSafe(); const backup = await CloudSync.loadState(); state = Storage.save(backup?.state || Storage.createEmptyState()); cloudLastSavedAt = backup?.clientUpdatedAt || ''; if (!backup?.state) { await CloudSync.saveState(state); cloudLastSavedAt = new Date().toISOString(); } appReady = true; cloudLoading = false; renderAllSafe(); showStatus('Voyages chargés.'); refreshCommunity(false); }
+  function updateCloudUi(payload = {}) { const user = payload.user ?? CloudSync?.getUser?.(); const configured = payload.configured ?? CloudSync?.isConfigured?.(); const status = payload.status || CloudSync?.getStatus?.() || ''; const top = $('#cloudAuthBtn'); const statusEl = $('#cloudStatus'); const avatar = $('#cloudAvatar'); const profile = $('#cloudProfile'); const name = $('#cloudUserName'); const email = $('#cloudUserEmail'); const signIn = $('#cloudSignInBtn'); const signOut = $('#cloudSignOutBtn'); const del = $('#deleteCloudDataBtn'); document.body.classList.toggle('is-cloud-locked', !user || !appReady); if (top) { top.classList.toggle('is-connected', Boolean(user)); top.innerHTML = user ? `${user.photoURL ? `<img class="auth-pill__avatar" src="${U.escapeHtml(user.photoURL)}" alt="">` : '<span class="cloud-dot"></span>'}<span class="auth-pill__text"><strong>Connecté</strong><small>${U.escapeHtml(user.displayName || user.email || 'Google')}</small></span>` : '<span class="cloud-dot"></span><span class="auth-pill__text"><strong>Connexion</strong><small>Google</small></span>'; } if (statusEl) { statusEl.className = `cloud-status ${user ? 'cloud-status--success' : payload.kind === 'error' ? 'cloud-status--error' : 'cloud-status--idle'}`; statusEl.innerHTML = `<span class="cloud-status__dot"></span><span>${U.escapeHtml(user ? 'Connecté et synchronisé.' : (configured ? status || 'Connecte-toi avec Google.' : 'Firebase non configuré.'))}</span>`; } if (profile) profile.hidden = !user; if (avatar && user) avatar.src = user.photoURL || 'assets/icons/icon-192.png'; if (name && user) name.textContent = user.displayName || 'Compte Google'; if (email && user) email.textContent = user.email || ''; if (signIn) signIn.disabled = Boolean(user) || !configured; if (signOut) signOut.disabled = !user; if (del) del.disabled = !user || !appReady; const meta = $('#cloudSyncMeta'); if (meta) meta.textContent = user ? (cloudLastSavedAt ? `Dernière sauvegarde : ${new Date(cloudLastSavedAt).toLocaleString('fr-FR')}` : 'Sauvegarde automatique active') : 'Non connecté'; }
+  async function handleCloudAuth() { if (CloudSync?.getUser()) return switchView('settings'); return handleCloudSignIn(); }
+  async function handleCloudSignIn() { try { cloudLoading = true; renderAllSafe(); await CloudSync.signIn(); } catch (error) { cloudLoading = false; showStatus(friendlyFirebaseError(error), 5000); updateCloudUi({ status: friendlyFirebaseError(error), kind: 'error' }); renderAllSafe(); } }
+  async function handleCloudSignOut() { if (!await confirmAction('Se déconnecter ?', 'Les voyages restent sauvegardés dans Firebase.')) return; await flushCloudAutosave(); await CloudSync.signOut(); }
+  async function saveCloudStateNow(silent = true) { if (!appReady || !CloudSync?.getUser()) return; try { state = Storage.save(state); await CloudSync.saveState(state); cloudLastSavedAt = new Date().toISOString(); updateCloudUi(); if (!silent) showStatus('Sauvegardé.'); } catch (error) { console.error(error); showStatus(friendlyFirebaseError(error), 5000); } }
+  function scheduleCloudAutosave(delay = 700) { clearTimeout(autosaveTimer); autosaveTimer = setTimeout(() => saveCloudStateNow(true), delay); }
+  async function flushCloudAutosave() { clearTimeout(autosaveTimer); await saveCloudStateNow(true); }
+  async function deleteCloudData() { if (!requireCloudReady()) return; if (!await confirmAction('Réinitialiser le compte ?', 'Tous tes voyages Firebase seront supprimés.')) return; await CloudSync.deleteState(); state = Storage.createEmptyState(); appReady = true; renderAllSafe(); showStatus('Compte réinitialisé.'); }
 
-  async function handleCloudUserChange(user) {
-    if (!user) {
-      loadedCloudUid = null;
-      appReady = false;
-      cloudLoading = false;
-      state = Storage.createEmptyState();
-      renderAll();
-      return;
-    }
+  function friendlyFirebaseError(error) { const msg = error?.message || String(error || ''); if (msg.includes('permissions') || msg.includes('PERMISSION_DENIED')) return 'Accès Firestore refusé. Vérifie les règles Firebase.'; if (msg.includes('auth/unauthorized-domain')) return 'Domaine non autorisé dans Firebase Authentication.'; if (msg.includes('length')) return 'Données anciennes corrigées. Recharge la page si nécessaire.'; return msg || 'Erreur Firebase.'; }
 
-    if (loadedCloudUid === user.uid && appReady) return;
+  async function refreshCommunity(show = true) { if (!CloudSync?.listCommunityTrips) return; try { communityTrips = await CloudSync.listCommunityTrips(); renderCommunity(); if (show) showStatus('Communauté actualisée.'); } catch (error) { console.error(error); $('#communityGrid') && ($('#communityGrid').innerHTML = `<div class="empty-state">${U.escapeHtml(friendlyFirebaseError(error))}</div>`); } }
+  function renderCommunity() { const grid = $('#communityGrid'); if (!grid) return; const stats = $('#communityStats'); const countryFilter = $('#communityCountryFilter'); const q = ($('#communitySearchInput')?.value || '').toLowerCase(); const category = $('#communityCategoryFilter')?.value || ''; const country = countryFilter?.value || ''; let rows = [...communityTrips]; const countries = U.unique(rows.map(r => r.country)).sort(); if (countryFilter && countryFilter.options.length <= 1) countryFilter.innerHTML = '<option value="">Tous les pays</option>' + countries.map(c => `<option value="${U.escapeHtml(c)}">${U.escapeHtml(c)}</option>`).join(''); rows = rows.filter(r => (!q || `${r.title} ${r.country} ${r.category} ${r.description}`.toLowerCase().includes(q)) && (!category || r.category === category) && (!country || r.country === country)); const sort = $('#communitySortFilter')?.value || 'trend'; rows.sort((a,b) => sort === 'recent' ? String(b.clientUpdatedAt || '').localeCompare(String(a.clientUpdatedAt || '')) : sort === 'budgetLow' ? (Number(a.trip?.maxBudget)||0)-(Number(b.trip?.maxBudget)||0) : (Number(b.score)||0)-(Number(a.score)||0)); if (stats) stats.innerHTML = `<div class="stat-card"><strong>${communityTrips.length}</strong><span>voyage(s)</span></div><div class="stat-card"><strong>${countries.length}</strong><span>pays</span></div><div class="stat-card"><strong>${rows[0]?.score || 0}</strong><span>meilleure tendance</span></div>`; grid.innerHTML = rows.length ? rows.map(renderCommunityCard).join('') : '<div class="empty-state">Aucun voyage public pour ces filtres.</div>'; grid.querySelectorAll('[data-community-vote]').forEach(btn => btn.addEventListener('click', () => voteCommunity(btn.dataset.communityVote, Number(btn.dataset.voteValue)))); grid.querySelectorAll('[data-community-copy]').forEach(btn => btn.addEventListener('click', () => copyCommunityTrip(btn.dataset.communityCopy))); grid.querySelectorAll('[data-community-delete]').forEach(btn => btn.addEventListener('click', () => deleteCommunityTrip(btn.dataset.communityDelete))); }
+  function renderCommunityCard(item) { const canDelete = CloudSync?.isAdmin?.() || item.ownerUid === CloudSync?.getUser?.()?.uid; const cover = item.coverImage ? `background-image:url('${U.escapeHtml(item.coverImage)}')` : 'background:linear-gradient(135deg,#2563eb,#14b8a6)'; return `<article class="community-card trip-card"><div class="trip-card__cover" style="${cover}"><span class="badge">${U.escapeHtml(item.category || 'voyage')}</span></div><h3>${U.escapeHtml(item.title || 'Voyage partagé')}</h3><p>${U.escapeHtml(item.description || item.country || '')}</p><div class="trip-card__meta"><span>🌍 ${U.escapeHtml(item.country || 'Non renseigné')}</span><span>⭐ ${Number(item.score)||0} tendance</span><span>👤 ${U.escapeHtml(item.ownerName || 'Utilisateur')}</span></div><div class="trip-card__actions"><button class="button" data-community-vote="${item.id}" data-vote-value="1">+ Tendance</button><button class="button" data-community-vote="${item.id}" data-vote-value="-1">−</button>${item.allowCopy !== false ? `<button class="button button--primary" data-community-copy="${item.id}">Copier</button>` : ''}${canDelete ? `<button class="button button--danger" data-community-delete="${item.id}">Retirer</button>` : ''}</div></article>`; }
+  function openCommunityPublish() { const trip = activeTrip(); if (!trip) return showStatus('Sélectionne un voyage à publier.'); const form = $('#communityPublishForm'); if (!form) return; form.reset(); form.elements.title.value = trip.name || ''; form.elements.country.value = trip.area || ''; form.elements.coverImage.value = trip.coverImage || ''; form.elements.description.value = trip.description || ''; $('#communityPublishDialog')?.showModal(); }
+  async function publishCommunity(event) { event.preventDefault(); if (!requireCloudReady()) return; const trip = activeTrip(); const data = new FormData(event.currentTarget); try { await CloudSync.publishCommunityTrip(trip, { title: data.get('title'), country: data.get('country'), category: data.get('category'), coverImage: data.get('coverImage'), description: data.get('description'), hideBudget: data.get('hideBudget') === 'on', hideNotes: data.get('hideNotes') === 'on', allowCopy: data.get('allowCopy') === 'on' }); $('#communityPublishDialog')?.close(); await refreshCommunity(false); switchView('community'); showStatus('Voyage publié dans la communauté.'); } catch (error) { console.error(error); showStatus(friendlyFirebaseError(error), 6000); } }
+  async function voteCommunity(id, value) { try { await CloudSync.voteCommunityTrip(id, value); await refreshCommunity(false); } catch (error) { showStatus(friendlyFirebaseError(error), 5000); } }
+  function copyCommunityTrip(id) { const item = communityTrips.find(t => t.id === id); if (!item?.trip) return; const copy = Storage.normalizeTrip({ ...U.clone(item.trip), id: U.uid('trip'), name: `${item.title || item.trip.name} — copie`, status: 'brouillon' }); state = Storage.upsertTrip(state, copy); persist('Voyage copié dans ton espace.'); switchView('trip'); }
+  async function deleteCommunityTrip(id) { if (!await confirmAction('Retirer cette publication ?', 'Elle disparaîtra de la communauté.')) return; try { await CloudSync.deleteCommunityTrip(id); await refreshCommunity(false); showStatus('Publication retirée.'); } catch (error) { showStatus(friendlyFirebaseError(error), 5000); } }
 
-    loadedCloudUid = user.uid;
-    appReady = false;
-    cloudLoading = true;
-    renderAll();
+  function renderGlobalSearch() { const box = $('#globalSearchResults'); const input = $('#globalSearchInput'); if (!box || !input) return; const q = input.value.trim().toLowerCase(); if (!q) { box.hidden = true; box.innerHTML = ''; return; } const results = []; (state.trips || []).forEach(trip => { if (`${trip.name} ${trip.area} ${trip.description}`.toLowerCase().includes(q)) results.push({ label: trip.name, type: 'voyage', action: () => { state.activeTripId = trip.id; persist(); switchView('trip'); } }); (trip.steps || []).forEach(step => { if (`${step.name} ${step.address} ${step.notes}`.toLowerCase().includes(q)) results.push({ label: `${step.name} — ${trip.name}`, type: 'étape', action: () => { state.activeTripId = trip.id; persist(); openStepDialog(step.id); } }); }); }); box.innerHTML = results.slice(0, 8).map((r, i) => `<button data-search-index="${i}"><strong>${U.escapeHtml(r.label)}</strong><small>${r.type}</small></button>`).join('') || '<div class="empty-state">Aucun résultat.</div>'; box.hidden = false; box.querySelectorAll('[data-search-index]').forEach(btn => btn.addEventListener('click', () => { results[Number(btn.dataset.searchIndex)].action(); box.hidden = true; input.value = ''; })); }
+  function toggleFabMenu() { const menu = $('#fabMenu'); if (menu) menu.hidden = !menu.hidden; }
+  function closeFabMenu() { const menu = $('#fabMenu'); if (menu) menu.hidden = true; }
 
-    const backup = await CloudSync.loadState();
-    if (backup?.state) {
-      state = Storage.save(backup.state);
-      cloudLastSavedAt = backup.clientUpdatedAt || '';
-    } else {
-      state = Storage.createEmptyState();
-      await CloudSync.saveState(state);
-      cloudLastSavedAt = new Date().toISOString();
-    }
+  function attachPlaceSearch() { Geocoder?.attachStepSearch?.({ input: $('#placeSearchInput'), button: $('#placeSearchBtn'), resultsContainer: $('#placeSearchResults'), statusElement: $('#placeSearchStatus'), onSelect: place => { const f = $('#stepForm'); if (!f) return; f.elements.name.value = place.name || ''; f.elements.address.value = place.address || place.displayName || ''; f.elements.lat.value = place.lat; f.elements.lng.value = place.lng; f.elements.type.value = U.placeTypes.includes(place.type) ? place.type : 'autre'; } }); }
 
-    appReady = true;
-    cloudLoading = false;
-    applyTheme(state.settings.theme || 'light');
-    renderAll();
-    updateCloudUi({ user, status: CloudSync.getStatus(), configured: true });
-    showStatus('Connecté. Sauvegarde automatique active.');
-  }
-
-  function updateCloudUi(payload = {}) {
-    if (!CloudSync) return;
-    const user = payload.user ?? CloudSync.getUser();
-    const configured = payload.configured ?? CloudSync.isConfigured();
-    const status = payload.status || CloudSync.getStatus();
-    const statusEl = document.getElementById('cloudStatus');
-    const profile = document.getElementById('cloudProfile');
-    const avatar = document.getElementById('cloudAvatar');
-    const name = document.getElementById('cloudUserName');
-    const email = document.getElementById('cloudUserEmail');
-    const topButton = document.getElementById('cloudAuthBtn');
-    const signInBtn = document.getElementById('cloudSignInBtn');
-    const signOutBtn = document.getElementById('cloudSignOutBtn');
-    const deleteCloudBtn = document.getElementById('deleteCloudDataBtn');
-    const syncMeta = document.getElementById('cloudSyncMeta');
-    const protectedControls = ['newTripBtn', 'createFirstTripBtn', 'loadDemoBtn', 'tripSelector', 'saveSettingsBtn'];
-
-    document.body.classList.toggle('is-cloud-locked', !appReady || !user);
-
-    if (statusEl) statusEl.textContent = status || (configured ? 'Connexion Google requise.' : 'Firebase non configuré.');
-    if (profile) profile.hidden = !user;
-    if (avatar && user) avatar.src = user.photoURL || '';
-    if (name && user) name.textContent = user.displayName || 'Compte Google';
-    if (email && user) email.textContent = user.email || '';
-    if (topButton) {
-      topButton.classList.toggle('is-connected', Boolean(user));
-      const photo = user?.photoURL ? `<img class="auth-pill__avatar" src="${escapeAttr(user.photoURL)}" alt="" />` : '<span class="cloud-dot" aria-hidden="true"></span>';
-      const label = user ? 'Connecté' : 'Connexion Google';
-      topButton.innerHTML = `${photo}<span class="auth-pill__text">${label}</span>`;
-      topButton.title = user ? `Connecté : ${user.email || user.displayName || 'compte Google'}` : 'Connexion Google';
-    }
-    if (signInBtn) {
-      signInBtn.disabled = !configured || Boolean(user);
-      signInBtn.innerHTML = user
-        ? '<span class="google-mark">✓</span><span>Connecté avec Google</span>'
-        : '<span class="google-mark">G</span><span>Se connecter avec Google</span>';
-    }
-    if (signOutBtn) signOutBtn.disabled = !user;
-    if (deleteCloudBtn) deleteCloudBtn.disabled = !user || !appReady;
-    if (syncMeta) syncMeta.textContent = cloudLastSavedAt ? `Dernière sauvegarde : ${U.formatDate(cloudLastSavedAt)} ${new Date(cloudLastSavedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : 'Sauvegarde Firebase automatique active après connexion.';
-
-    protectedControls.forEach(id => {
-      const element = document.getElementById(id);
-      if (element) element.disabled = !appReady || !user;
-    });
-  }
-
-  async function handleCloudAuth() {
-    if (!CloudSync?.isConfigured()) {
-      switchView('settings');
-      showStatus('Firebase doit être renseigné dans js/firebase-config.js.');
-      return;
-    }
-    if (CloudSync.getUser()) {
-      switchView('settings');
-      return;
-    }
-    await handleCloudSignIn();
-  }
-
-  async function handleCloudSignIn() {
-    try {
-      cloudLoading = true;
-      renderAll();
-      await CloudSync.signIn();
-      updateCloudUi();
-    } catch (error) {
-      console.error(error);
-      cloudLoading = false;
-      showStatus(error.message || 'Connexion Google impossible.');
-      updateCloudUi({ status: error.message });
-      renderAll();
-    }
-  }
-
-  async function handleCloudSignOut() {
-    const ok = await confirmAction('Se déconnecter ?', 'Les voyages seront retirés de cette session. Ils resteront dans Firebase pour ce compte Google.');
-    if (!ok) return;
-    try {
-      await flushCloudAutosave();
-      await CloudSync.signOut();
-      state = Storage.createEmptyState();
-      appReady = false;
-      loadedCloudUid = null;
-      renderAll();
-      showStatus('Déconnexion Google effectuée.');
-    } catch (error) {
-      showStatus(error.message || 'Déconnexion impossible.');
-    }
-  }
-
-  async function saveCloudStateNow(silent = true) {
-    if (!appReady || !CloudSync?.getUser()) return;
-    try {
-      const savedState = Storage.save(state);
-      state = savedState;
-      await CloudSync.saveState(savedState);
-      cloudLastSavedAt = new Date().toISOString();
-      updateCloudUi({ status: CloudSync.getStatus() });
-      if (!silent) showStatus('Sauvegardé dans Firebase.');
-    } catch (error) {
-      console.error(error);
-      updateCloudUi({ status: error.message });
-      if (!silent) showStatus(error.message || 'Sauvegarde Firebase impossible.');
-    }
-  }
-
-  function scheduleCloudAutosave(delay = 650) {
-    if (!appReady || !CloudSync?.getUser()) return;
-    clearTimeout(cloudAutosaveTimer);
-    updateCloudUi({ status: 'Sauvegarde Firebase en attente…' });
-    cloudAutosaveTimer = setTimeout(() => saveCloudStateNow(true), delay);
-  }
-
-  async function flushCloudAutosave() {
-    clearTimeout(cloudAutosaveTimer);
-    await saveCloudStateNow(true);
-  }
-
-  async function deleteCloudData() {
-    if (!requireCloudReady()) return;
-    const ok = await confirmAction('Supprimer toutes les données Firebase ?', 'Tous les voyages de ce compte Google seront supprimés de Firestore. Cette action est définitive.');
-    if (!ok) return;
-    try {
-      await CloudSync.deleteState();
-      state = Storage.createEmptyState();
-      appReady = true;
-      renderAll();
-      updateCloudUi({ status: 'Données Firebase supprimées. Tu peux créer un nouveau voyage.' });
-      showStatus('Données Firebase supprimées.');
-    } catch (error) {
-      console.error(error);
-      showStatus(error.message || 'Suppression Firebase impossible.');
-    }
-  }
-
-  function confirmAction(title, message) {
-    const dialog = $('#confirmDialog');
-    $('#confirmTitle').textContent = title;
-    $('#confirmMessage').textContent = message;
-    return new Promise(resolve => {
-      const onClose = () => {
-        dialog.removeEventListener('close', onClose);
-        resolve(dialog.returnValue === 'default');
-      };
-      dialog.addEventListener('close', onClose);
-      dialog.showModal();
-    });
-  }
-
-  document.addEventListener('DOMContentLoaded', init);
+  function confirmAction(title, message) { const dialog = $('#confirmDialog'); if (!dialog?.showModal) return Promise.resolve(confirm(`${title}\n${message}`)); $('#confirmTitle').textContent = title; $('#confirmMessage').textContent = message; return new Promise(resolve => { const onClose = () => { dialog.removeEventListener('close', onClose); resolve(dialog.returnValue === 'default'); }; dialog.addEventListener('close', onClose); dialog.showModal(); }); }
 })();

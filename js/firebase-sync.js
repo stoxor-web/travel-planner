@@ -2,21 +2,20 @@
   'use strict';
 
   const SDK_VERSION = '10.12.5';
-  const LOCAL_CONFIG_KEY = 'travelPlanner:firebaseConfig';
-  const AUTO_SYNC_KEY = 'travelPlanner:firebaseAutoSync';
   const COLLECTION = 'travelPlannerUsers';
   const COMMUNITY_COLLECTION = 'communityTrips';
+  const ADMIN_EMAIL = 'lucas.scribe01@gmail.com';
 
   let firebaseApp = null;
   let firebaseAuth = null;
   let firestoreDb = null;
   let modules = null;
   let currentUser = null;
-  let currentStatus = 'Firebase non configuré.';
+  let currentStatus = 'Firebase non initialisé.';
   let initializingPromise = null;
-  let authReadyPromise = null;
-  let authReadyResolved = false;
+  let firstAuthResolved = false;
   const authListeners = new Set();
+  const authWaiters = [];
 
   function cleanConfig(config = {}) {
     return {
@@ -30,57 +29,8 @@
     };
   }
 
-  function hasRequiredConfig(config = getConfig()) {
-    return Boolean(config.apiKey && config.authDomain && config.projectId && config.appId);
-  }
-
-  function getEmbeddedConfig() {
-    return cleanConfig(window.TRAVEL_PLANNER_FIREBASE_CONFIG || {});
-  }
-
-  function getStoredConfig() {
-    try {
-      const raw = localStorage.getItem(LOCAL_CONFIG_KEY);
-      return raw ? cleanConfig(JSON.parse(raw)) : cleanConfig({});
-    } catch (error) {
-      console.warn('Configuration Firebase locale invalide.', error);
-      return cleanConfig({});
-    }
-  }
-
-  function getConfig() {
-    const stored = getStoredConfig();
-    return hasConfigValues(stored) ? stored : getEmbeddedConfig();
-  }
-
-  function hasConfigValues(config) {
-    return Object.values(cleanConfig(config)).some(Boolean);
-  }
-
-  function saveConfig(config) {
-    const cleaned = cleanConfig(config);
-    localStorage.setItem(LOCAL_CONFIG_KEY, JSON.stringify(cleaned));
-    resetRuntime();
-    return cleaned;
-  }
-
-  function clearStoredConfig() {
-    localStorage.removeItem(LOCAL_CONFIG_KEY);
-    resetRuntime();
-  }
-
-  function resetRuntime() {
-    firebaseApp = null;
-    firebaseAuth = null;
-    firestoreDb = null;
-    modules = null;
-    currentUser = null;
-    initializingPromise = null;
-    authReadyPromise = null;
-    authReadyResolved = false;
-    currentStatus = hasRequiredConfig() ? 'Firebase configuré. Connexion Google disponible.' : 'Firebase non configuré.';
-    notifyAuthListeners();
-  }
+  function getConfig() { return cleanConfig(window.TRAVEL_PLANNER_FIREBASE_CONFIG || {}); }
+  function isConfigured(config = getConfig()) { return Boolean(config.apiKey && config.authDomain && config.projectId && config.appId); }
 
   async function loadModules() {
     if (modules) return modules;
@@ -93,14 +43,25 @@
     return modules;
   }
 
+  function notifyAuthListeners() {
+    const payload = { user: currentUser, status: currentStatus, configured: isConfigured(), isAdmin: isAdmin() };
+    authListeners.forEach(listener => {
+      try { listener(payload); } catch (error) { console.error(error); }
+    });
+  }
+
+  function resolveAuthWaiters() {
+    firstAuthResolved = true;
+    while (authWaiters.length) authWaiters.shift()(currentUser);
+  }
+
   async function init() {
     if (firebaseAuth && firestoreDb) return { auth: firebaseAuth, db: firestoreDb, user: currentUser };
     if (initializingPromise) return initializingPromise;
-
     initializingPromise = (async () => {
       const config = getConfig();
-      if (!hasRequiredConfig(config)) {
-        currentStatus = 'Firebase n’est pas configuré. Renseigne apiKey, authDomain, projectId et appId.';
+      if (!isConfigured(config)) {
+        currentStatus = 'Configuration Firebase incomplète.';
         notifyAuthListeners();
         throw new Error(currentStatus);
       }
@@ -108,39 +69,27 @@
       firebaseApp = appModule.getApps().length ? appModule.getApp() : appModule.initializeApp(config);
       firebaseAuth = authModule.getAuth(firebaseApp);
       firestoreDb = firestoreModule.getFirestore(firebaseApp);
-      try {
-        await authModule.setPersistence(firebaseAuth, authModule.browserLocalPersistence);
-      } catch (error) {
-        console.warn('Persistance Firebase Auth non modifiée.', error);
-      }
-      authReadyResolved = false;
-      authReadyPromise = new Promise(resolve => {
-        authModule.onAuthStateChanged(firebaseAuth, user => {
-          currentUser = user;
-          currentStatus = user ? `Connecté à Firebase avec ${user.email || user.displayName || 'un compte Google'}.` : 'Firebase configuré. Aucun compte Google connecté.';
-          notifyAuthListeners();
-          if (!authReadyResolved) {
-            authReadyResolved = true;
-            resolve(user || null);
-          }
-        });
+      try { await authModule.setPersistence(firebaseAuth, authModule.browserLocalPersistence); } catch (error) { console.warn(error); }
+      authModule.onAuthStateChanged(firebaseAuth, user => {
+        currentUser = user;
+        currentStatus = user ? `Connecté avec ${user.email || 'Google'}.` : 'Connexion Google requise.';
+        resolveAuthWaiters();
+        notifyAuthListeners();
       });
-      currentStatus = 'Firebase initialisé.';
+      currentStatus = 'Firebase prêt.';
       notifyAuthListeners();
       return { auth: firebaseAuth, db: firestoreDb, user: currentUser };
     })();
-
-    try {
-      return await initializingPromise;
-    } catch (error) {
-      initializingPromise = null;
-      throw error;
-    }
+    try { return await initializingPromise; } catch (error) { initializingPromise = null; throw error; }
   }
 
-  async function waitForAuthState() {
+  async function waitForAuthState(timeoutMs = 8000) {
     await init();
-    return authReadyPromise || currentUser || null;
+    if (firstAuthResolved) return currentUser;
+    return new Promise(resolve => {
+      const timer = setTimeout(() => resolve(currentUser), timeoutMs);
+      authWaiters.push(user => { clearTimeout(timer); resolve(user); });
+    });
   }
 
   async function signIn() {
@@ -151,7 +100,7 @@
     try {
       const result = await authModule.signInWithPopup(auth, provider);
       currentUser = result.user;
-      currentStatus = `Connecté à Firebase avec ${currentUser.email || currentUser.displayName || 'Google'}.`;
+      currentStatus = `Connecté avec ${currentUser.email || 'Google'}.`;
       notifyAuthListeners();
       return currentUser;
     } catch (error) {
@@ -168,13 +117,13 @@
     const { authModule } = await loadModules();
     await authModule.signOut(auth);
     currentUser = null;
-    currentStatus = 'Déconnecté de Firebase.';
+    currentStatus = 'Déconnecté.';
     notifyAuthListeners();
   }
 
   function requireSignedIn() {
-    if (!currentUser) throw new Error('Connecte-toi d’abord avec ton compte Google.');
-    if (!firestoreDb) throw new Error('Firebase n’est pas initialisé.');
+    if (!currentUser) throw new Error('Connecte-toi avec Google.');
+    if (!firestoreDb || !modules) throw new Error('Firebase n’est pas prêt.');
   }
 
   function cloudDocRef() {
@@ -184,10 +133,10 @@
 
   function sanitizeStateForCloud(state) {
     return JSON.parse(JSON.stringify({
-      version: state.version || 1,
-      activeTripId: state.activeTripId || state.trips?.[0]?.id || null,
-      settings: state.settings || {},
-      trips: Array.isArray(state.trips) ? state.trips : []
+      version: state?.version || 2,
+      activeTripId: state?.activeTripId || state?.trips?.[0]?.id || null,
+      settings: state?.settings || {},
+      trips: Array.isArray(state?.trips) ? state.trips : []
     }));
   }
 
@@ -204,8 +153,8 @@
       updatedAt: firestoreModule.serverTimestamp(),
       state: sanitizeStateForCloud(state)
     };
-    await firestoreModule.setDoc(cloudDocRef(), payload);
-    currentStatus = `Sauvegarde Google mise à jour pour ${currentUser.email || 'ce compte'}.`;
+    await firestoreModule.setDoc(cloudDocRef(), payload, { merge: true });
+    currentStatus = 'Sauvegardé.';
     notifyAuthListeners();
     return payload;
   }
@@ -217,14 +166,9 @@
     const snapshot = await firestoreModule.getDoc(cloudDocRef());
     if (!snapshot.exists()) return null;
     const data = snapshot.data();
-    currentStatus = `Sauvegarde Google chargée pour ${currentUser.email || 'ce compte'}.`;
+    currentStatus = 'Voyages chargés.';
     notifyAuthListeners();
-    return {
-      state: data.state || null,
-      clientUpdatedAt: data.clientUpdatedAt || '',
-      ownerEmail: data.ownerEmail || '',
-      schemaVersion: data.schemaVersion || 1
-    };
+    return { state: data.state || null, clientUpdatedAt: data.clientUpdatedAt || '', ownerEmail: data.ownerEmail || '' };
   }
 
   async function deleteState() {
@@ -232,150 +176,96 @@
     requireSignedIn();
     const { firestoreModule } = await loadModules();
     await firestoreModule.deleteDoc(cloudDocRef());
-    currentStatus = 'Données Firebase supprimées pour ce compte.';
+    currentStatus = 'Données supprimées.';
     notifyAuthListeners();
   }
 
-  function serializeFirestoreDoc(snapshot) {
-    const data = snapshot.data() || {};
-    return {
-      id: snapshot.id,
-      ...data,
-      publishedAt: data.publishedAt?.toDate ? data.publishedAt.toDate().toISOString() : (data.publishedAt || ''),
-      updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : (data.updatedAt || '')
-    };
+  function publicTripData(trip, options = {}) {
+    const cleaned = JSON.parse(JSON.stringify(trip || {}));
+    if (options.hideNotes) {
+      cleaned.description = cleaned.description ? cleaned.description : '';
+      cleaned.steps = (cleaned.steps || []).map(step => ({ ...step, notes: '', links: [], journal: {} }));
+      cleaned.checklists = {};
+    }
+    if (options.hideBudget) {
+      cleaned.maxBudget = 0;
+      cleaned.expenses = [];
+      cleaned.steps = (cleaned.steps || []).map(step => ({ ...step, cost: 0, segmentCost: 0 }));
+    }
+    return cleaned;
   }
 
-  function communityDocRef(id) {
-    const { firestoreModule } = modules;
-    return firestoreModule.doc(firestoreDb, COMMUNITY_COLLECTION, id);
+  async function publishCommunityTrip(trip, meta = {}) {
+    await init();
+    requireSignedIn();
+    if (!trip?.id) throw new Error('Aucun voyage actif à publier.');
+    const { firestoreModule } = await loadModules();
+    const id = `${currentUser.uid}_${trip.id}`;
+    const docRef = firestoreModule.doc(firestoreDb, COMMUNITY_COLLECTION, id);
+    const payload = {
+      id,
+      ownerUid: currentUser.uid,
+      ownerEmail: currentUser.email || '',
+      ownerName: currentUser.displayName || currentUser.email || 'Utilisateur',
+      title: meta.title || trip.name || 'Voyage partagé',
+      country: meta.country || trip.area || '',
+      category: meta.category || 'roadtrip',
+      coverImage: meta.coverImage || trip.coverImage || '',
+      description: meta.description || trip.description || '',
+      hideBudget: Boolean(meta.hideBudget),
+      hideNotes: Boolean(meta.hideNotes),
+      allowCopy: meta.allowCopy !== false,
+      createdAt: firestoreModule.serverTimestamp(),
+      updatedAt: firestoreModule.serverTimestamp(),
+      clientUpdatedAt: new Date().toISOString(),
+      votes: {},
+      score: 0,
+      trip: publicTripData(trip, meta)
+    };
+    await firestoreModule.setDoc(docRef, payload, { merge: true });
+    return payload;
   }
 
   async function listCommunityTrips() {
     await init();
     const { firestoreModule } = await loadModules();
     const snapshot = await firestoreModule.getDocs(firestoreModule.collection(firestoreDb, COMMUNITY_COLLECTION));
-    return snapshot.docs.map(serializeFirestoreDoc).filter(item => item.schema === 'communityTrip');
-  }
-
-  function buildCommunityId(sourceTripId) {
-    const raw = `${currentUser.uid}_${sourceTripId || Date.now()}`;
-    return raw.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 180);
-  }
-
-  async function publishCommunityTrip(payload) {
-    await init();
-    requireSignedIn();
-    const { firestoreModule } = await loadModules();
-    const id = buildCommunityId(payload.sourceTripId);
-    const ref = communityDocRef(id);
-    const existingSnap = await firestoreModule.getDoc(ref);
-    const existing = existingSnap.exists() ? existingSnap.data() : {};
-    const nowIso = new Date().toISOString();
-    const existingPublishedAt = existing.publishedAt?.toDate ? existing.publishedAt.toDate().toISOString() : (typeof existing.publishedAt === 'string' ? existing.publishedAt : nowIso);
-    const doc = JSON.parse(JSON.stringify({
-      schema: 'communityTrip',
-      schemaVersion: 1,
-      id,
-      ownerUid: currentUser.uid,
-      ownerEmail: currentUser.email || '',
-      ownerName: currentUser.displayName || currentUser.email || 'Voyageur',
-      sourceTripId: payload.sourceTripId || '',
-      title: payload.title || 'Voyage partagé',
-      country: payload.country || payload.area || '',
-      area: payload.area || payload.country || '',
-      category: payload.category || 'citybreak',
-      style: payload.style || 'équilibré',
-      pace: payload.pace || 'normal',
-      interests: payload.interests || '',
-      description: payload.description || '',
-      coverImage: payload.coverImage || '',
-      currency: payload.currency || '€',
-      publicBudget: Number(payload.publicBudget) || 0,
-      hideBudget: Boolean(payload.hideBudget),
-      hideNotes: Boolean(payload.hideNotes),
-      allowCopy: payload.allowCopy !== false,
-      durationDays: Number(payload.durationDays) || 0,
-      stepsCount: Number(payload.stepsCount) || 0,
-      highlights: Array.isArray(payload.highlights) ? payload.highlights : [],
-      trip: payload.trip || {},
-      votes: existing.votes || {},
-      upVotes: Number(existing.upVotes) || 0,
-      downVotes: Number(existing.downVotes) || 0,
-      trendScore: Number(existing.trendScore) || 0,
-      publishedAt: existingPublishedAt,
-      updatedAt: firestoreModule.serverTimestamp()
-    }));
-    doc.updatedAt = firestoreModule.serverTimestamp();
-    await firestoreModule.setDoc(ref, doc);
-    return { ...doc, updatedAt: nowIso };
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   }
 
   async function voteCommunityTrip(id, value) {
     await init();
     requireSignedIn();
     const { firestoreModule } = await loadModules();
-    const ref = communityDocRef(id);
-    const result = await firestoreModule.runTransaction(firestoreDb, async transaction => {
-      const snapshot = await transaction.get(ref);
-      if (!snapshot.exists()) throw new Error('Voyage communautaire introuvable.');
-      const data = snapshot.data();
-      const votes = { ...(data.votes || {}) };
-      const previous = Number(votes[currentUser.uid]) || 0;
-      const requested = value > 0 ? 1 : -1;
-      if (previous === requested) delete votes[currentUser.uid];
-      else votes[currentUser.uid] = requested;
-      const values = Object.values(votes).map(Number);
-      const upVotes = values.filter(v => v > 0).length;
-      const downVotes = values.filter(v => v < 0).length;
-      const trendScore = upVotes - downVotes;
-      transaction.update(ref, { votes, upVotes, downVotes, trendScore, updatedAt: firestoreModule.serverTimestamp() });
-      return { ...data, id: snapshot.id, votes, upVotes, downVotes, trendScore };
-    });
-    return result;
+    const docRef = firestoreModule.doc(firestoreDb, COMMUNITY_COLLECTION, id);
+    const snapshot = await firestoreModule.getDoc(docRef);
+    if (!snapshot.exists()) throw new Error('Publication introuvable.');
+    const data = snapshot.data();
+    const votes = { ...(data.votes || {}), [currentUser.uid]: value > 0 ? 1 : -1 };
+    const score = Object.values(votes).reduce((sum, item) => sum + Number(item || 0), 0);
+    await firestoreModule.updateDoc(docRef, { votes, score, updatedAt: firestoreModule.serverTimestamp() });
   }
 
   async function deleteCommunityTrip(id) {
     await init();
     requireSignedIn();
     const { firestoreModule } = await loadModules();
-    await firestoreModule.deleteDoc(communityDocRef(id));
-  }
-
-  function isAutoSyncEnabled() {
-    return localStorage.getItem(AUTO_SYNC_KEY) === 'true';
-  }
-
-  function setAutoSyncEnabled(enabled) {
-    localStorage.setItem(AUTO_SYNC_KEY, enabled ? 'true' : 'false');
+    await firestoreModule.deleteDoc(firestoreModule.doc(firestoreDb, COMMUNITY_COLLECTION, id));
   }
 
   function onAuthChange(listener) {
     authListeners.add(listener);
-    listener({ user: currentUser, status: currentStatus, configured: hasRequiredConfig(), autoSync: isAutoSyncEnabled() });
+    listener({ user: currentUser, status: currentStatus, configured: isConfigured(), isAdmin: isAdmin() });
     return () => authListeners.delete(listener);
   }
 
-  function notifyAuthListeners() {
-    const payload = { user: currentUser, status: currentStatus, configured: hasRequiredConfig(), autoSync: isAutoSyncEnabled() };
-    authListeners.forEach(listener => listener(payload));
-  }
-
-  function getUser() {
-    return currentUser;
-  }
-
-  function getStatus() {
-    return currentStatus;
-  }
+  function getUser() { return currentUser; }
+  function getStatus() { return currentStatus; }
+  function isAdmin() { return (currentUser?.email || '').toLowerCase() === ADMIN_EMAIL; }
 
   window.TravelCloudSync = {
     getConfig,
-    getStoredConfig,
-    getEmbeddedConfig,
-    saveConfig,
-    clearStoredConfig,
-    isConfigured: hasRequiredConfig,
+    isConfigured,
     init,
     waitForAuthState,
     signIn,
@@ -383,14 +273,13 @@
     saveState,
     loadState,
     deleteState,
-    listCommunityTrips,
-    publishCommunityTrip,
-    voteCommunityTrip,
-    deleteCommunityTrip,
     getUser,
     getStatus,
     onAuthChange,
-    isAutoSyncEnabled,
-    setAutoSyncEnabled
+    isAdmin,
+    publishCommunityTrip,
+    listCommunityTrips,
+    voteCommunityTrip,
+    deleteCommunityTrip
   };
 })();

@@ -1,13 +1,11 @@
 (function () {
   'use strict';
 
-  // Depuis la version Firebase-only, ce module ne persiste plus les voyages dans localStorage.
-  // Il sert uniquement à normaliser l'état en mémoire avant lecture/écriture Firestore.
   const LEGACY_KEY = 'travelPlanner:v1';
   const { defaultSettings, deepMerge, uid, createDefaultChecklists, clone } = window.TravelUtils;
 
   const emptyState = {
-    version: 1,
+    version: 2,
     activeTripId: null,
     settings: defaultSettings,
     trips: []
@@ -17,67 +15,102 @@
     return clone(emptyState);
   }
 
+  function splitNames(value, travellers = 1) {
+    if (Array.isArray(value)) return value.map(v => String(v || '').trim()).filter(Boolean);
+    const names = String(value || '').split(',').map(v => v.trim()).filter(Boolean);
+    if (names.length) return names;
+    const count = Math.max(1, Number(travellers) || 1);
+    return Array.from({ length: count }, (_, index) => `Voyageur ${index + 1}`);
+  }
+
+  function normalizeJournal(journal = {}) {
+    return {
+      notes: journal.notes || '',
+      photoLinks: journal.photoLinks || '',
+      rating: journal.rating || '',
+      realExpenses: journal.realExpenses || '',
+      weather: journal.weather || '',
+      afterthoughts: journal.afterthoughts || ''
+    };
+  }
+
+  function normalizeStep(step = {}, index = 0) {
+    return {
+      id: step.id || uid('step'),
+      order: Number.isFinite(Number(step.order)) ? Number(step.order) : index,
+      name: step.name || `Étape ${index + 1}`,
+      type: step.type || 'ville',
+      address: step.address || '',
+      lat: step.lat === '' || step.lat == null ? '' : Number(step.lat),
+      lng: step.lng === '' || step.lng == null ? '' : Number(step.lng),
+      arrivalDate: step.arrivalDate || '',
+      arrivalTime: step.arrivalTime || '',
+      departureDate: step.departureDate || step.arrivalDate || '',
+      departureTime: step.departureTime || '',
+      duration: step.duration || '',
+      notes: step.notes || '',
+      links: Array.isArray(step.links) ? step.links : window.TravelUtils.linksToArray(step.links),
+      cost: Number(step.cost) || 0,
+      priority: step.priority || 'optionnel',
+      color: step.color || '#2563eb',
+      transportToNext: step.transportToNext || 'car',
+      segmentCost: Number(step.segmentCost) || 0,
+      segmentNote: step.segmentNote || '',
+      segmentReference: step.segmentReference || '',
+      journal: normalizeJournal(step.journal || {})
+    };
+  }
+
+  function normalizeExpense(expense = {}) {
+    const planned = expense.plannedAmount ?? expense.amount ?? '';
+    return {
+      id: expense.id || uid('expense'),
+      label: expense.label || 'Dépense',
+      category: expense.category || 'autres',
+      amount: Number(planned) || 0,
+      plannedAmount: planned === '' || planned == null ? '' : Number(planned) || 0,
+      actualAmount: expense.actualAmount === '' || expense.actualAmount == null ? '' : Number(expense.actualAmount) || 0,
+      status: expense.status || 'prévue',
+      paidBy: expense.paidBy || '',
+      splitBetween: Array.isArray(expense.splitBetween) ? expense.splitBetween.filter(Boolean) : [],
+      date: expense.date || '',
+      stepId: expense.stepId || '',
+      note: expense.note || ''
+    };
+  }
+
+  function normalizeChecklists(checklists) {
+    const defaults = createDefaultChecklists();
+    const source = checklists && typeof checklists === 'object' ? checklists : defaults;
+    return Object.fromEntries(Object.entries(source).map(([category, items]) => [
+      category,
+      Array.isArray(items) ? items.map(item => ({ id: item.id || uid('todo'), text: item.text || String(item || ''), done: Boolean(item.done) })) : []
+    ]));
+  }
+
   function normalizeTrip(trip = {}) {
     const now = new Date().toISOString();
+    const travellers = Math.max(1, Number(trip.travellers) || splitNames(trip.travellersNames).length || 1);
+    const travellersNames = splitNames(trip.travellersNames, travellers);
     return {
       id: trip.id || uid('trip'),
       name: trip.name || 'Nouveau voyage',
       description: trip.description || '',
-      area: trip.area || '',
+      area: trip.area || trip.country || '',
       coverImage: trip.coverImage || '',
       startDate: trip.startDate || '',
       endDate: trip.endDate || '',
-      travellers: Math.max(1, Number(trip.travellers) || 1),
-      travellersNames: trip.travellersNames || '',
+      travellers,
+      travellersNames,
       maxBudget: Number(trip.maxBudget) || 0,
       currency: trip.currency || '€',
       status: trip.status || 'brouillon',
       style: trip.style || 'équilibré',
       pace: trip.pace || 'normal',
       interests: trip.interests || '',
-      steps: Array.isArray(trip.steps) ? trip.steps.map((step, index) => ({
-        id: step.id || uid('step'),
-        order: Number.isFinite(Number(step.order)) ? Number(step.order) : index,
-        name: step.name || `Étape ${index + 1}`,
-        type: step.type || 'ville',
-        lat: step.lat === '' || step.lat == null ? '' : Number(step.lat),
-        lng: step.lng === '' || step.lng == null ? '' : Number(step.lng),
-        address: step.address || '',
-        arrivalDate: step.arrivalDate || '',
-        arrivalTime: step.arrivalTime || '',
-        departureDate: step.departureDate || '',
-        departureTime: step.departureTime || '',
-        duration: step.duration || '',
-        notes: step.notes || '',
-        links: Array.isArray(step.links) ? step.links : [],
-        cost: Number(step.cost) || 0,
-        priority: step.priority || 'optionnel',
-        color: step.color || '#2563eb',
-        transportToNext: step.transportToNext || 'car',
-        segmentCost: Number(step.segmentCost) || 0,
-        segmentNote: step.segmentNote || '',
-        journal: step.journal || { notes: '', photoLinks: '', rating: '', realExpenses: '', weather: '', afterthoughts: '' }
-      })) : [],
-      expenses: Array.isArray(trip.expenses) ? trip.expenses.map(expense => {
-        const planned = expense.plannedAmount ?? expense.amount ?? 0;
-        const actual = expense.actualAmount ?? expense.realAmount ?? 0;
-        const split = Array.isArray(expense.splitBetween) ? expense.splitBetween : (Array.isArray(expense.splitWith) ? expense.splitWith : []);
-        return {
-          id: expense.id || uid('expense'),
-          label: expense.label || 'Dépense',
-          category: expense.category || 'autres',
-          plannedAmount: Number(planned) || 0,
-          actualAmount: Number(actual) || 0,
-          amount: Number(planned) || 0,
-          status: expense.status || 'prévue',
-          date: expense.date || '',
-          stepId: expense.stepId || '',
-          note: expense.note || '',
-          paidBy: expense.paidBy || '',
-          splitBetween: split
-        };
-      }) : [],
-      checklists: trip.checklists || createDefaultChecklists(),
+      steps: Array.isArray(trip.steps) ? trip.steps.map(normalizeStep).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)) : [],
+      expenses: Array.isArray(trip.expenses) ? trip.expenses.map(normalizeExpense) : [],
+      checklists: normalizeChecklists(trip.checklists),
       createdAt: trip.createdAt || now,
       updatedAt: trip.updatedAt || now
     };
@@ -85,32 +118,22 @@
 
   function normalizeState(state = {}) {
     const cleaned = {
-      version: 1,
-      activeTripId: state.activeTripId || null,
-      settings: deepMerge(defaultSettings, state.settings || {}),
-      trips: Array.isArray(state.trips) ? state.trips.map(normalizeTrip) : []
+      version: 2,
+      activeTripId: state?.activeTripId || null,
+      settings: deepMerge(defaultSettings, state?.settings || {}),
+      trips: Array.isArray(state?.trips) ? state.trips.map(normalizeTrip) : []
     };
     if (!cleaned.activeTripId && cleaned.trips[0]) cleaned.activeTripId = cleaned.trips[0].id;
-    if (cleaned.activeTripId && !cleaned.trips.some(trip => trip.id === cleaned.activeTripId)) {
-      cleaned.activeTripId = cleaned.trips[0]?.id || null;
-    }
+    if (cleaned.activeTripId && !cleaned.trips.some(trip => trip.id === cleaned.activeTripId)) cleaned.activeTripId = cleaned.trips[0]?.id || null;
     return cleaned;
   }
 
-  function load() {
-    return createEmptyState();
-  }
-
-  function save(state) {
-    return normalizeState(state);
-  }
-
-  function getTrip(state, id = state.activeTripId) {
-    return (state.trips || []).find(trip => trip.id === id) || null;
-  }
+  function load() { return createEmptyState(); }
+  function save(state) { return normalizeState(state); }
+  function getTrip(state, id = state?.activeTripId) { return (state?.trips || []).find(trip => trip.id === id) || null; }
 
   function upsertTrip(state, trip) {
-    const normalized = normalizeTrip(trip);
+    const normalized = normalizeTrip({ ...trip, updatedAt: new Date().toISOString() });
     const next = normalizeState(state);
     const index = next.trips.findIndex(item => item.id === normalized.id);
     if (index >= 0) next.trips[index] = normalized;
@@ -136,47 +159,8 @@
     return save(next);
   }
 
-  function importData(state, payload) {
-    if (!payload || typeof payload !== 'object') throw new Error('Format de sauvegarde non reconnu.');
-    const incomingTrips = Array.isArray(payload.trips) ? payload.trips : (payload.id ? [payload] : []);
-    if (!incomingTrips.length) throw new Error('Aucun voyage trouvé dans ce fichier.');
-    const next = normalizeState(state);
-    const existingById = new Map(next.trips.map(trip => [trip.id, trip]));
-    incomingTrips.forEach(trip => {
-      const normalized = normalizeTrip(trip);
-      if (existingById.has(normalized.id)) normalized.id = uid('trip');
-      next.trips.unshift(normalized);
-      next.activeTripId = normalized.id;
-    });
-    if (payload.settings) next.settings = deepMerge(next.settings, payload.settings);
-    return save(next);
-  }
+  function reset() { return createEmptyState(); }
+  function clearLegacyLocalBackup() { try { localStorage.removeItem(LEGACY_KEY); } catch (_) {} }
 
-  function reset() {
-    return createEmptyState();
-  }
-
-  function clearLegacyLocalBackup() {
-    try {
-      localStorage.removeItem(LEGACY_KEY);
-    } catch (error) {
-      console.warn('Impossible de nettoyer l’ancienne sauvegarde locale.', error);
-    }
-  }
-
-  window.TravelStorage = {
-    KEY: LEGACY_KEY,
-    load,
-    save,
-    getTrip,
-    upsertTrip,
-    deleteTrip,
-    duplicateTrip,
-    importData,
-    reset,
-    normalizeTrip,
-    normalizeState,
-    createEmptyState,
-    clearLegacyLocalBackup
-  };
+  window.TravelStorage = { KEY: LEGACY_KEY, load, save, getTrip, upsertTrip, deleteTrip, duplicateTrip, reset, normalizeTrip, normalizeState, createEmptyState, clearLegacyLocalBackup };
 })();
