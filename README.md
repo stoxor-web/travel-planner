@@ -1,6 +1,6 @@
 https://stoxor-web.github.io/travel-planner/
 
-# Travel Planner — V4.10 UI & Partage
+# Travel Planner — V4.11 UI & Partage
 
 Application web personnelle de planification de voyages créée par Lucas S., hébergeable sur GitHub Pages et synchronisée avec Firebase/Google.
 
@@ -19,7 +19,7 @@ Remplace tout le contenu de ton dépôt GitHub Pages par le contenu de ce dossie
 
 ```bash
 git add .
-git commit -m "V4.10 correction interface et partage communaute"
+git commit -m "V4.11 correction interface et partage communaute"
 git push origin main
 ```
 
@@ -46,3 +46,14 @@ L’administrateur communautaire défini dans les règles est :
 ```text
 lucas.scribe01@gmail.com
 ```
+
+
+## V4.11 — Réparation visuelle et fonctionnelle
+
+- Correction des sections HTML/JS désynchronisées.
+- Firebase reste actif avec connexion Google.
+- Correction du bouton Google et du bloc Compte.
+- Suppression des erreurs de données anciennes, notamment `reading length`.
+- Carte OpenStreetMap stable sans Leaflet.
+- Communauté recâblée avec publication, vote, copie et retrait.
+- Footer officiel retravaillé.
