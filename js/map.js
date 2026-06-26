@@ -1,45 +1,89 @@
-(function(){
+(function () {
   'use strict';
-  const U = window.TravelUtils;
+
   let lastTrip = null;
   let lastSettings = null;
-  function fitBounds(){ updateMap(lastTrip,lastSettings); }
-  function project(step,bounds,w,h){
-    const lat=Number(step.lat), lng=Number(step.lng);
-    const x = bounds.maxLng===bounds.minLng ? w/2 : ((lng-bounds.minLng)/(bounds.maxLng-bounds.minLng))*w;
-    const y = bounds.maxLat===bounds.minLat ? h/2 : ((bounds.maxLat-lat)/(bounds.maxLat-bounds.minLat))*h;
-    return {x: Math.max(34,Math.min(w-34,x)), y: Math.max(34,Math.min(h-34,y))};
+
+  function initMap() {
+    const el = document.getElementById('mapCanvas');
+    if (el && !el.dataset.ready) {
+      el.dataset.ready = '1';
+      el.addEventListener('click', event => {
+        const marker = event.target.closest('[data-map-step]');
+        if (!marker || !lastTrip) return;
+        const step = (lastTrip.steps || []).find(s => s.id === marker.dataset.mapStep);
+        if (step && window.TravelUtils.isValidCoord(step)) {
+          window.open(`https://www.openstreetmap.org/?mlat=${step.lat}&mlon=${step.lng}#map=13/${step.lat}/${step.lng}`, '_blank', 'noopener');
+        }
+      });
+    }
   }
-  function boundsFor(steps){
-    const coords=steps.filter(U.isValidCoord);
-    if(!coords.length) return {minLat:43,maxLat:51,minLng:-3,maxLng:8};
-    let minLat=Math.min(...coords.map(s=>Number(s.lat))), maxLat=Math.max(...coords.map(s=>Number(s.lat))), minLng=Math.min(...coords.map(s=>Number(s.lng))), maxLng=Math.max(...coords.map(s=>Number(s.lng)));
-    const latPad=Math.max(.25,(maxLat-minLat)*.25), lngPad=Math.max(.25,(maxLng-minLng)*.25);
-    return {minLat:minLat-latPad,maxLat:maxLat+latPad,minLng:minLng-lngPad,maxLng:maxLng+lngPad};
+
+  function project(step, bounds, width, height) {
+    const lat = Number(step.lat);
+    const lng = Number(step.lng);
+    const lngSpan = Math.max(0.01, bounds.maxLng - bounds.minLng);
+    const latSpan = Math.max(0.01, bounds.maxLat - bounds.minLat);
+    const x = 48 + ((lng - bounds.minLng) / lngSpan) * (width - 96);
+    const y = 48 + ((bounds.maxLat - lat) / latSpan) * (height - 96);
+    return { x, y };
   }
-  function updateMap(trip,settings){
-    lastTrip=trip; lastSettings=settings;
-    const canvas=document.getElementById('mapCanvas'); if(!canvas) return;
-    const steps=U.sortSteps(trip?.steps||[]).filter(U.isValidCoord); const w=900,h=560;
-    if(!trip || !steps.length){ canvas.innerHTML='<div class="empty-state">Ajoute des étapes avec latitude et longitude pour afficher la carte.</div>'; updateOsmLink(trip); return; }
-    const b=boundsFor(steps); const pts=steps.map((s,i)=>({...project(s,b,w,h),step:s,index:i}));
-    const grid = Array.from({length:8},(_,i)=>`<line class="map-grid" x1="${i*w/7}" y1="0" x2="${i*w/7}" y2="${h}"/><line class="map-grid" x1="0" y1="${i*h/7}" x2="${w}" y2="${i*h/7}"/>`).join('');
-    const lines = pts.slice(0,-1).map((p,i)=>{ const q=pts[i+1]; const mode=p.step.transportToNext||'car'; const cls=mode==='plane'?'route-line plane':'route-line'; return `<path class="${cls}" d="M${p.x},${p.y} C${(p.x+q.x)/2},${Math.min(p.y,q.y)-60} ${(p.x+q.x)/2},${Math.max(p.y,q.y)+60} ${q.x},${q.y}"/>`; }).join('');
-    const markers = pts.map(p=>`<g class="map-point"><circle cx="${p.x}" cy="${p.y}" r="17" fill="${p.step.color||'#1769e8'}" stroke="#fff" stroke-width="3"/><text x="${p.x}" y="${p.y+4}" text-anchor="middle">${p.index+1}</text><text class="map-label" x="${p.x+22}" y="${p.y-18}">${U.escapeHtml(p.step.name).slice(0,24)}</text></g>`).join('');
-    canvas.innerHTML=`<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Carte schématique du voyage"><defs><linearGradient id="sea" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#dff2ff"/><stop offset="1" stop-color="#f8fffd"/></linearGradient></defs><rect width="${w}" height="${h}" fill="url(#sea)"/>${grid}${lines}${markers}</svg>`;
-    updateOsmLink(trip);
+
+  function boundsFor(steps) {
+    const lats = steps.map(s => Number(s.lat));
+    const lngs = steps.map(s => Number(s.lng));
+    let minLat = Math.min(...lats), maxLat = Math.max(...lats), minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+    if (minLat === maxLat) { minLat -= .05; maxLat += .05; }
+    if (minLng === maxLng) { minLng -= .05; maxLng += .05; }
+    const padLat = (maxLat - minLat) * .18;
+    const padLng = (maxLng - minLng) * .18;
+    return { minLat: minLat - padLat, maxLat: maxLat + padLat, minLng: minLng - padLng, maxLng: maxLng + padLng };
   }
-  function updateOsmLink(trip){
-    const link=document.getElementById('openOsmBtn'); if(!link) return;
-    const steps=U.sortSteps(trip?.steps||[]).filter(U.isValidCoord);
-    if(!steps.length){ link.href='https://www.openstreetmap.org'; return; }
-    const center=steps[Math.floor(steps.length/2)]; link.href=`https://www.openstreetmap.org/?mlat=${center.lat}&mlon=${center.lng}#map=7/${center.lat}/${center.lng}`;
+
+  function segmentColor(mode) {
+    return { plane: '#f97316', train: '#2563eb', car: '#0f766e', bus: '#7c3aed', walk: '#16a34a', bike: '#0891b2', boat: '#0ea5e9', other: '#64748b' }[mode] || '#0f766e';
   }
-  function renderSegments(container,trip,settings,onChange){
-    if(!container) return; const steps=U.sortSteps(trip?.steps||[]);
-    if(!trip || steps.length<2){ container.innerHTML='<div class="empty-state">Ajoute au moins deux étapes pour voir les trajets.</div>'; return; }
-    container.innerHTML=steps.slice(0,-1).map((step,i)=>{ const next=steps[i+1]; const mode=step.transportToNext||'car'; const est=U.estimateSegment(step,next,mode,settings); return `<article class="segment-card"><span class="badge">${est.modeIcon} ${est.modeLabel}</span><h3>${U.escapeHtml(step.name)} → ${U.escapeHtml(next.name)}</h3><p>${U.formatDistance(est.distance)} · ${U.formatDuration(est.duration)} · ${U.formatMoney(step.segmentCost || est.cost, trip.currency)}</p><label>Transport<select class="input" data-segment-mode="${step.id}">${Object.entries(U.transportModes).map(([k,v])=>`<option value="${k}" ${k===mode?'selected':''}>${v.icon} ${v.label}</option>`).join('')}</select></label><label>Coût réel / estimé<input class="input" type="number" min="0" step="0.01" value="${step.segmentCost||''}" data-segment-cost="${step.id}" /></label><label>Référence<input class="input" value="${U.escapeHtml(step.segmentReference||'')}" data-segment-reference="${step.id}" placeholder="Vol, train, réservation…" /></label></article>`; }).join('');
-    container.querySelectorAll('[data-segment-mode],[data-segment-cost],[data-segment-reference]').forEach(el=>el.addEventListener('change',()=>{ const id=el.dataset.segmentMode||el.dataset.segmentCost||el.dataset.segmentReference; const field=el.dataset.segmentMode?'transportToNext':el.dataset.segmentCost?'segmentCost':'segmentReference'; onChange?.(id,field,el.value); }));
+
+  function updateMap(trip, settings) {
+    initMap();
+    lastTrip = trip;
+    lastSettings = settings;
+    const canvas = document.getElementById('mapCanvas');
+    if (!canvas) return;
+    const steps = window.TravelUtils.sortSteps(trip?.steps || []).filter(window.TravelUtils.isValidCoord);
+    if (!steps.length) {
+      canvas.innerHTML = `<div class="map-empty"><strong>Carte prête</strong><span>Ajoute des coordonnées ou recherche une adresse pour placer tes étapes.</span></div>`;
+      return;
+    }
+
+    const w = Math.max(760, canvas.clientWidth || 900);
+    const h = Math.max(460, canvas.clientHeight || 520);
+    const bounds = boundsFor(steps);
+    const pts = steps.map(s => ({ step: s, ...project(s, bounds, w, h) }));
+    const grid = Array.from({ length: 7 }, (_, i) => `<line x1="${(i + 1) * w / 8}" y1="0" x2="${(i + 1) * w / 8}" y2="${h}" class="map-grid"/><line x1="0" y1="${(i + 1) * h / 8}" x2="${w}" y2="${(i + 1) * h / 8}" class="map-grid"/>`).join('');
+    const segments = pts.slice(0, -1).map((p, i) => {
+      const q = pts[i + 1];
+      const mode = p.step.transportToNext || 'car';
+      const dash = mode === 'plane' ? '10 9' : mode === 'walk' ? '4 8' : '';
+      const midX = (p.x + q.x) / 2;
+      const midY = (p.y + q.y) / 2;
+      const dist = window.TravelUtils.estimateSegment(p.step, q.step, mode, settings).distance;
+      return `<line x1="${p.x}" y1="${p.y}" x2="${q.x}" y2="${q.y}" stroke="${segmentColor(mode)}" stroke-width="4" stroke-linecap="round" stroke-dasharray="${dash}" class="route-line"/><text x="${midX}" y="${midY - 8}" class="map-label">${window.TravelUtils.formatDistance(dist)}</text>`;
+    }).join('');
+    const markers = pts.map((p, i) => `
+      <g class="map-marker" data-map-step="${p.step.id}" tabindex="0" role="button">
+        <circle cx="${p.x}" cy="${p.y}" r="18" fill="${p.step.color || '#0f766e'}"/>
+        <circle cx="${p.x}" cy="${p.y}" r="23" class="marker-halo"/>
+        <text x="${p.x}" y="${p.y + 5}" text-anchor="middle" class="marker-number">${i + 1}</text>
+        <text x="${p.x}" y="${p.y + 38}" text-anchor="middle" class="marker-caption">${window.TravelUtils.escapeHtml(p.step.name).slice(0, 22)}</text>
+      </g>`).join('');
+
+    canvas.innerHTML = `<svg class="travel-svg-map" viewBox="0 0 ${w} ${h}" aria-label="Carte du voyage"><defs><radialGradient id="mapBg" cx="50%" cy="45%" r="75%"><stop offset="0%" stop-color="#effaf7"/><stop offset="55%" stop-color="#e8f2fb"/><stop offset="100%" stop-color="#dbeafe"/></radialGradient></defs><rect width="${w}" height="${h}" rx="22" fill="url(#mapBg)"/>${grid}${segments}${markers}</svg>`;
   }
-  window.TravelMap = { updateMap, fitBounds, renderSegments };
+
+  function fitBounds() { updateMap(lastTrip, lastSettings); }
+  function invalidate() { setTimeout(() => updateMap(lastTrip, lastSettings), 80); }
+  function resetFilters() {}
+
+  window.TravelMap = { initMap, updateMap, fitBounds, invalidate, resetFilters };
 })();

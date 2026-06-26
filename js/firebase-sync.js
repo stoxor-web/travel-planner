@@ -1,9 +1,9 @@
-(function(){
+(function () {
   'use strict';
 
   const SDK_VERSION = '10.12.5';
-  const USERS = 'travelPlannerUsers';
-  const COMMUNITY = 'communityTrips';
+  const USER_COLLECTION = 'travelPlannerUsers';
+  const COMMUNITY_COLLECTION = 'communityTrips';
   const ADMIN_EMAIL = 'lucas.scribe01@gmail.com';
 
   let app = null;
@@ -11,339 +11,196 @@
   let db = null;
   let modules = null;
   let currentUser = null;
-  let status = 'Initialisation Firebase…';
   let initPromise = null;
-  let authReadyResolve = null;
-
-  const authReady = new Promise(resolve => { authReadyResolve = resolve; });
+  let status = 'Firebase non initialisé.';
   const listeners = new Set();
 
-  const clean = c => ({
-    apiKey: String(c?.apiKey || '').trim(),
-    authDomain: String(c?.authDomain || '').trim(),
-    projectId: String(c?.projectId || '').trim(),
-    appId: String(c?.appId || '').trim(),
-    storageBucket: String(c?.storageBucket || '').trim(),
-    messagingSenderId: String(c?.messagingSenderId || '').trim(),
-    measurementId: String(c?.measurementId || '').trim()
-  });
+  function cleanConfig(config = {}) {
+    return {
+      apiKey: String(config.apiKey || '').trim(),
+      authDomain: String(config.authDomain || '').trim(),
+      projectId: String(config.projectId || '').trim(),
+      storageBucket: String(config.storageBucket || '').trim(),
+      messagingSenderId: String(config.messagingSenderId || '').trim(),
+      appId: String(config.appId || '').trim(),
+      measurementId: String(config.measurementId || '').trim()
+    };
+  }
 
-  const getConfig = () => clean(window.TRAVEL_PLANNER_FIREBASE_CONFIG || {});
-  const isConfigured = () => {
+  function getConfig() { return cleanConfig(window.TRAVEL_PLANNER_FIREBASE_CONFIG || {}); }
+  function isConfigured() {
     const c = getConfig();
     return Boolean(c.apiKey && c.authDomain && c.projectId && c.appId);
-  };
-
-  function providerLabel(user = currentUser) {
-    const provider = user?.providerData?.[0]?.providerId || '';
-    if (user?.isAnonymous) return 'invité anonyme';
-    if (provider.includes('password')) return 'e-mail';
-    if (provider.includes('google')) return 'Google';
-    return user ? 'Firebase' : '';
-  }
-
-  function isAdmin() {
-    return (currentUser?.email || '').toLowerCase() === ADMIN_EMAIL;
-  }
-
-  function emit() {
-    const payload = {
-      user: currentUser,
-      status,
-      configured: isConfigured(),
-      isAdmin: isAdmin(),
-      provider: providerLabel()
-    };
-    listeners.forEach(fn => fn(payload));
   }
 
   async function loadModules() {
     if (modules) return modules;
-    const [appM, authM, fsM] = await Promise.all([
+    const [appModule, authModule, firestoreModule] = await Promise.all([
       import(`https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-app.js`),
       import(`https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-auth.js`),
       import(`https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-firestore.js`)
     ]);
-    modules = { appM, authM, fsM };
+    modules = { appModule, authModule, firestoreModule };
     return modules;
   }
 
   async function init() {
     if (auth && db) return { auth, db, user: currentUser };
     if (initPromise) return initPromise;
-
     initPromise = (async () => {
-      if (!isConfigured()) throw new Error('Firebase n’est pas configuré dans js/firebase-config.js.');
-      const { appM, authM, fsM } = await loadModules();
-      app = appM.getApps().length ? appM.getApp() : appM.initializeApp(getConfig());
-      auth = authM.getAuth(app);
-      db = fsM.getFirestore(app);
-
-      try {
-        await authM.setPersistence(auth, authM.browserLocalPersistence);
-      } catch (error) {
-        console.warn(error);
-      }
-
-      try {
-        await authM.getRedirectResult(auth);
-      } catch (error) {
-        console.warn(error);
-      }
-
-      authM.onAuthStateChanged(auth, user => {
+      if (!isConfigured()) throw new Error('Configuration Firebase manquante.');
+      const { appModule, authModule, firestoreModule } = await loadModules();
+      app = appModule.getApps().length ? appModule.getApp() : appModule.initializeApp(getConfig());
+      auth = authModule.getAuth(app);
+      db = firestoreModule.getFirestore(app);
+      try { await authModule.setPersistence(auth, authModule.browserLocalPersistence); } catch (e) { console.warn(e); }
+      authModule.onAuthStateChanged(auth, user => {
         currentUser = user;
-        status = user
-          ? (user.isAnonymous ? 'Connecté en mode invité.' : `Connecté avec ${user.email || user.displayName || 'un compte Firebase'}.`)
-          : 'Connexion requise.';
-        authReadyResolve?.(user);
-        emit();
+        status = user ? `Connecté avec ${displayName(user)}.` : 'Choisis un mode de connexion.';
+        notify();
       });
-
       status = 'Firebase prêt.';
-      emit();
+      notify();
       return { auth, db, user: currentUser };
     })();
-
-    return initPromise;
+    try { return await initPromise; } catch (e) { initPromise = null; status = e.message; notify(); throw e; }
   }
 
-  async function waitForAuthState() {
-    await init();
-    return authReady;
+  function displayName(user = currentUser) {
+    if (!user) return 'invité';
+    if (user.isAnonymous) return 'un accès invité';
+    return user.displayName || user.email || 'un compte';
   }
 
-  async function signIn() {
+  async function signInGoogle() {
     const { auth } = await init();
-    const { authM } = await loadModules();
-    const provider = new authM.GoogleAuthProvider();
+    const { authModule } = await loadModules();
+    const provider = new authModule.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
     try {
-      const result = await authM.signInWithPopup(auth, provider);
+      const result = await authModule.signInWithPopup(auth, provider);
       currentUser = result.user;
-      status = 'Connexion Google réussie.';
-      emit();
+      notify();
       return currentUser;
     } catch (error) {
       if (['auth/popup-blocked', 'auth/cancelled-popup-request'].includes(error.code)) {
-        await authM.signInWithRedirect(auth, provider);
+        await authModule.signInWithRedirect(auth, provider);
         return null;
       }
-      throw normalizeAuthError(error);
+      throw error;
     }
   }
 
-
-  async function signInAnonymously() {
+  async function signInEmail(email, password) {
     const { auth } = await init();
-    const { authM } = await loadModules();
-    try {
-      const result = await authM.signInAnonymously(auth);
-      currentUser = result.user;
-      status = 'Connexion invitée réussie.';
-      emit();
-      return currentUser;
-    } catch (error) {
-      throw normalizeAuthError(error);
-    }
+    const { authModule } = await loadModules();
+    const result = await authModule.signInWithEmailAndPassword(auth, email, password);
+    currentUser = result.user;
+    notify();
+    return currentUser;
   }
 
-  async function signInWithEmail(email, password) {
+  async function registerEmail(email, password) {
     const { auth } = await init();
-    const { authM } = await loadModules();
-    try {
-      const result = await authM.signInWithEmailAndPassword(auth, String(email || '').trim(), String(password || ''));
-      currentUser = result.user;
-      status = 'Connexion e-mail réussie.';
-      emit();
-      return currentUser;
-    } catch (error) {
-      throw normalizeAuthError(error);
-    }
-  }
-
-  async function registerWithEmail(email, password) {
-    const { auth } = await init();
-    const { authM } = await loadModules();
-    try {
-      const result = await authM.createUserWithEmailAndPassword(auth, String(email || '').trim(), String(password || ''));
-      currentUser = result.user;
-      status = 'Compte e-mail créé.';
-      emit();
-      return currentUser;
-    } catch (error) {
-      throw normalizeAuthError(error);
-    }
+    const { authModule } = await loadModules();
+    const result = await authModule.createUserWithEmailAndPassword(auth, email, password);
+    currentUser = result.user;
+    notify();
+    return currentUser;
   }
 
   async function resetPassword(email) {
     const { auth } = await init();
-    const { authM } = await loadModules();
-    try {
-      await authM.sendPasswordResetEmail(auth, String(email || '').trim());
-      status = 'E-mail de réinitialisation envoyé.';
-      emit();
-    } catch (error) {
-      throw normalizeAuthError(error);
-    }
+    const { authModule } = await loadModules();
+    await authModule.sendPasswordResetEmail(auth, email);
+  }
+
+  async function signInAnonymous() {
+    const { auth } = await init();
+    const { authModule } = await loadModules();
+    const result = await authModule.signInAnonymously(auth);
+    currentUser = result.user;
+    notify();
+    return currentUser;
   }
 
   async function signOut() {
     const { auth } = await init();
-    const { authM } = await loadModules();
-    await authM.signOut(auth);
+    const { authModule } = await loadModules();
+    await authModule.signOut(auth);
     currentUser = null;
-    status = 'Déconnecté.';
-    emit();
-  }
-
-  function normalizeAuthError(error) {
-    const code = error?.code || '';
-    const messages = {
-      'auth/invalid-email': 'Adresse e-mail invalide.',
-      'auth/missing-email': 'Adresse e-mail manquante.',
-      'auth/missing-password': 'Mot de passe manquant.',
-      'auth/weak-password': 'Mot de passe trop faible. Utilise au moins 6 caractères.',
-      'auth/email-already-in-use': 'Cette adresse e-mail est déjà utilisée. Connecte-toi ou réinitialise le mot de passe.',
-      'auth/invalid-credential': 'Identifiants incorrects ou compte inexistant.',
-      'auth/user-not-found': 'Aucun compte ne correspond à cette adresse.',
-      'auth/wrong-password': 'Mot de passe incorrect.',
-      'auth/too-many-requests': 'Trop de tentatives. Réessaie plus tard.',
-      'auth/operation-not-allowed': 'Ce mode de connexion n’est pas activé dans Firebase.',
-      'auth/admin-restricted-operation': 'La connexion anonyme n’est pas activée dans Firebase Authentication.',
-      'auth/unauthorized-domain': 'Ce domaine n’est pas autorisé dans Firebase Authentication.'
-    };
-    return new Error(messages[code] || error?.message || 'Connexion impossible.');
-  }
-
-  function normalizeFirestoreError(error, context = '') {
-    const code = error?.code || '';
-    if (code === 'permission-denied' || /Missing or insufficient permissions/i.test(error?.message || '')) {
-      return new Error(`${context ? context + ' : ' : ''}permissions Firebase insuffisantes. Copie le fichier firestore.rules de cette archive dans Firebase Console → Firestore Database → Rules, puis publie les règles.`);
-    }
-    return new Error(error?.message || `${context || 'Action Firebase'} impossible.`);
+    notify();
   }
 
   function requireUser() {
-    if (!currentUser) throw new Error('Connecte-toi avec Google, e-mail ou invité.');
-    if (!db || !modules) throw new Error('Firebase non initialisé.');
-  }
-
-  function userRef() {
-    const { fsM } = modules;
-    return fsM.doc(db, USERS, currentUser.uid);
-  }
-
-  function sanitize(state) {
-    return JSON.parse(JSON.stringify({
-      version: state.version || 415,
-      activeTripId: state.activeTripId || null,
-      settings: state.settings || {},
-      trips: Array.isArray(state.trips) ? state.trips : []
-    }));
+    if (!currentUser) throw new Error('Connecte-toi avant de synchroniser.');
+    if (!db) throw new Error('Firestore non initialisé.');
   }
 
   async function saveState(state) {
     await init();
     requireUser();
-    const { fsM } = modules;
-    await fsM.setDoc(userRef(), {
+    const { firestoreModule } = await loadModules();
+    const ref = firestoreModule.doc(db, USER_COLLECTION, currentUser.uid);
+    const payload = {
       ownerUid: currentUser.uid,
       ownerEmail: currentUser.email || '',
       schema: 'travelPlannerState',
       schemaVersion: 1,
       clientUpdatedAt: new Date().toISOString(),
-      updatedAt: fsM.serverTimestamp(),
-      state: sanitize(state)
-    });
-    status = 'Sauvegardé dans Firebase.';
-    emit();
+      updatedAt: firestoreModule.serverTimestamp(),
+      state: JSON.parse(JSON.stringify(state || {}))
+    };
+    await firestoreModule.setDoc(ref, payload, { merge: true });
+    status = 'Sauvegardé.';
+    notify();
+    return payload;
   }
 
   async function loadState() {
     await init();
     requireUser();
-    const { fsM } = modules;
-    const snap = await fsM.getDoc(userRef());
+    const { firestoreModule } = await loadModules();
+    const ref = firestoreModule.doc(db, USER_COLLECTION, currentUser.uid);
+    const snap = await firestoreModule.getDoc(ref);
     if (!snap.exists()) return null;
     const data = snap.data();
-    status = 'Données chargées depuis Firebase.';
-    emit();
+    status = 'Voyages chargés.';
+    notify();
     return { state: data.state || null, clientUpdatedAt: data.clientUpdatedAt || '' };
   }
 
   async function deleteState() {
     await init();
     requireUser();
-    const { fsM } = modules;
-    await fsM.deleteDoc(userRef());
-    status = 'Données supprimées.';
-    emit();
+    const { firestoreModule } = await loadModules();
+    await firestoreModule.deleteDoc(firestoreModule.doc(db, USER_COLLECTION, currentUser.uid));
   }
 
-  function publicTrip(trip, options = {}) {
-    return JSON.parse(JSON.stringify({
-      id: trip.id,
-      name: options.title || trip.name,
-      title: options.title || trip.name,
-      area: options.country || trip.area || '',
-      country: options.country || trip.area || '',
-      category: options.category || 'roadtrip',
-      coverImage: options.coverImage || trip.coverImage || '',
-      description: options.description || trip.description || '',
-      currency: trip.currency || '€',
-      status: trip.status || 'prévu',
-      style: trip.style || 'équilibré',
-      pace: trip.pace || 'normal',
-      startDate: trip.startDate || '',
-      endDate: trip.endDate || '',
-      travellers: trip.travellers || 1,
-      maxBudget: options.hideBudget ? 0 : (trip.maxBudget || 0),
-      steps: (trip.steps || []).map(s => ({
-        id: s.id,
-        order: s.order,
-        name: s.name,
-        type: s.type,
-        address: s.address,
-        lat: s.lat,
-        lng: s.lng,
-        arrivalDate: s.arrivalDate,
-        arrivalTime: s.arrivalTime,
-        departureDate: s.departureDate,
-        departureTime: s.departureTime,
-        cost: options.hideBudget ? 0 : (s.cost || 0),
-        priority: s.priority,
-        color: s.color,
-        transportToNext: s.transportToNext,
-        segmentCost: options.hideBudget ? 0 : (s.segmentCost || 0),
-        segmentReference: s.segmentReference || '',
-        segmentNote: s.segmentNote || ''
-      })),
-      expenses: options.hideBudget ? [] : (trip.expenses || []).map(e => ({
-        label: e.label,
-        category: e.category,
-        planned: e.planned,
-        actual: e.actual,
-        date: e.date,
-        status: e.status
-      })),
-      checklists: [],
-      publishedOptions: {
-        hideBudget: Boolean(options.hideBudget),
-        hideNotes: Boolean(options.hideNotes),
-        allowCopy: options.allowCopy !== false
-      }
-    }));
+  function publicTripPayload(trip, options = {}) {
+    const cleanTrip = JSON.parse(JSON.stringify(trip || {}));
+    if (options.hideBudget) {
+      cleanTrip.maxBudget = 0;
+      cleanTrip.expenses = [];
+      cleanTrip.steps = (cleanTrip.steps || []).map(s => ({ ...s, cost: 0, segmentCost: 0, notes: options.hideNotes ? '' : s.notes }));
+    }
+    if (options.hideNotes) {
+      cleanTrip.description = '';
+      cleanTrip.steps = (cleanTrip.steps || []).map(s => ({ ...s, notes: '', journal: {} }));
+    }
+    return cleanTrip;
   }
 
   async function publishCommunityTrip(trip, options = {}) {
     await init();
     requireUser();
-    const { fsM } = modules;
-    const payload = {
+    const { firestoreModule } = await loadModules();
+    const ref = firestoreModule.doc(firestoreModule.collection(db, COMMUNITY_COLLECTION));
+    const doc = {
+      id: ref.id,
       ownerUid: currentUser.uid,
       ownerEmail: currentUser.email || '',
-      authorName: currentUser.displayName || currentUser.email || 'Utilisateur',
+      ownerName: currentUser.displayName || currentUser.email || (currentUser.isAnonymous ? 'Invité' : 'Utilisateur'),
       title: options.title || trip.name || 'Voyage partagé',
       country: options.country || trip.area || '',
       category: options.category || 'roadtrip',
@@ -351,94 +208,60 @@
       description: options.description || trip.description || '',
       allowCopy: options.allowCopy !== false,
       hideBudget: Boolean(options.hideBudget),
-      score: 0,
+      trip: publicTripPayload(trip, options),
       votes: {},
-      createdAt: fsM.serverTimestamp(),
-      updatedAt: fsM.serverTimestamp(),
-      trip: publicTrip(trip, options)
+      score: 0,
+      createdAt: firestoreModule.serverTimestamp(),
+      updatedAt: firestoreModule.serverTimestamp()
     };
-    try {
-      const ref = await fsM.addDoc(fsM.collection(db, COMMUNITY), payload);
-      return { id: ref.id, ...payload };
-    } catch (error) {
-      throw normalizeFirestoreError(error, 'Communauté');
-    }
+    await firestoreModule.setDoc(ref, doc);
+    return doc;
   }
 
   async function listCommunityTrips() {
     await init();
-    const { fsM } = modules;
-    try {
-      const snap = await fsM.getDocs(fsM.collection(db, COMMUNITY));
-      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    } catch (error) {
-      throw normalizeFirestoreError(error, 'Chargement communauté');
-    }
+    const { firestoreModule } = await loadModules();
+    const q = firestoreModule.query(firestoreModule.collection(db, COMMUNITY_COLLECTION), firestoreModule.orderBy('score', 'desc'), firestoreModule.limit(80));
+    const snap = await firestoreModule.getDocs(q);
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   }
 
   async function voteCommunityTrip(id, value) {
     await init();
     requireUser();
-    const { fsM } = modules;
-    const ref = fsM.doc(db, COMMUNITY, id);
-    try {
-      await fsM.runTransaction(db, async tx => {
-        const snap = await tx.get(ref);
-        if (!snap.exists()) throw new Error('Publication introuvable.');
-        const data = snap.data();
-        const votes = { ...(data.votes || {}) };
-        const next = Number(value) || 0;
-        if (votes[currentUser.uid] === next) delete votes[currentUser.uid];
-        else votes[currentUser.uid] = next;
-        const score = Object.values(votes).reduce((a, b) => a + Number(b || 0), 0);
-        tx.update(ref, { votes, score, updatedAt: fsM.serverTimestamp() });
-      });
-    } catch (error) {
-      throw normalizeFirestoreError(error, 'Vote communauté');
-    }
+    const { firestoreModule } = await loadModules();
+    const ref = firestoreModule.doc(db, COMMUNITY_COLLECTION, id);
+    const snap = await firestoreModule.getDoc(ref);
+    if (!snap.exists()) throw new Error('Voyage introuvable.');
+    const data = snap.data();
+    const votes = data.votes || {};
+    votes[currentUser.uid] = Number(value) > 0 ? 1 : -1;
+    const score = Object.values(votes).reduce((sum, v) => sum + Number(v || 0), 0);
+    await firestoreModule.updateDoc(ref, { votes, score, updatedAt: firestoreModule.serverTimestamp() });
   }
 
   async function deleteCommunityTrip(id) {
     await init();
     requireUser();
-    const { fsM } = modules;
-    try {
-      await fsM.deleteDoc(fsM.doc(db, COMMUNITY, id));
-    } catch (error) {
-      throw normalizeFirestoreError(error, 'Retrait communauté');
-    }
+    const { firestoreModule } = await loadModules();
+    await firestoreModule.deleteDoc(firestoreModule.doc(db, COMMUNITY_COLLECTION, id));
   }
 
+  function isAdmin() { return currentUser?.email === ADMIN_EMAIL; }
   function getUser() { return currentUser; }
   function getStatus() { return status; }
-  function getProviderLabel() { return providerLabel(); }
-  function onAuthChange(fn) {
-    listeners.add(fn);
-    fn({ user: currentUser, status, configured: isConfigured(), isAdmin: isAdmin(), provider: providerLabel() });
-    return () => listeners.delete(fn);
+
+  function onAuthChange(listener) {
+    listeners.add(listener);
+    listener({ user: currentUser, status, configured: isConfigured() });
+    return () => listeners.delete(listener);
   }
+  function notify() { listeners.forEach(fn => fn({ user: currentUser, status, configured: isConfigured() })); }
 
   window.TravelCloudSync = {
-    init,
-    waitForAuthState,
-    signIn,
-    signInAnonymously,
-    signInWithEmail,
-    registerWithEmail,
-    resetPassword,
-    signOut,
-    saveState,
-    loadState,
-    deleteState,
-    publishCommunityTrip,
-    listCommunityTrips,
-    voteCommunityTrip,
-    deleteCommunityTrip,
-    getUser,
-    getStatus,
-    getProviderLabel,
-    isAdmin,
-    onAuthChange,
-    isConfigured
+    init, isConfigured, getConfig, getUser, getStatus, isAdmin, onAuthChange,
+    signIn: signInGoogle, signInGoogle, signInEmail, registerEmail, resetPassword, signInAnonymous, signOut,
+    saveState, loadState, deleteState,
+    publishCommunityTrip, listCommunityTrips, voteCommunityTrip, deleteCommunityTrip
   };
 })();
