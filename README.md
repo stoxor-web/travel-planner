@@ -2,7 +2,7 @@ https://stoxor-web.github.io/travel-planner/
 
 # Travel Planner — Lucas S.
 
-Version **V4.18 — bloc de connexion visuel + Firebase actif**.
+Version **V4.19 — bloc de connexion visuel + Firebase actif**.
 
 Cette version répare la base visuelle et fonctionnelle du site avec un dossier complet cohérent : HTML, CSS, JavaScript, Firebase, communauté, budget, planning, carte, préparation et carnet.
 
@@ -18,7 +18,7 @@ Cette version répare la base visuelle et fonctionnelle du site avec un dossier 
 
 ```bash
 git add .
-git commit -m "V4.18 bloc de connexion visuel"
+git commit -m "V4.19 bloc de connexion visuel"
 git push origin main
 ```
 
@@ -52,7 +52,7 @@ Cette version conserve Firebase actif et ajoute un troisième mode de connexion 
 Le fournisseur **Anonyme** doit être activé dans Firebase Authentication.
 Aucun fichier `firebase-config.example` n’est inclus.
 
-## V4.18 — Bloc de connexion
+## V4.19 — Bloc de connexion
 
 - Remplacement du texte brut “Connexion requise.” par un bloc visuel “Choisis ton mode de connexion”.
 - Bouton supérieur plus lisible : “Se connecter / Choisir un accès”.

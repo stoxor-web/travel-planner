@@ -2,69 +2,26 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function owns(userId) { return signedIn() && request.auth.uid == userId; }
+    function isAdmin() { return signedIn() && request.auth.token.email == 'lucas.scribe01@gmail.com'; }
 
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isSignedInUser(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    function isAdmin() {
-      return isSignedIn()
-        && request.auth.token.email != null
-        && request.auth.token.email == 'lucas.scribe01@gmail.com';
-    }
-
-    function hasValidBackupShape() {
-      return isSignedIn()
-        && request.resource.data.keys().hasOnly([
-          'ownerUid',
-          'ownerEmail',
-          'schema',
-          'schemaVersion',
-          'clientUpdatedAt',
-          'updatedAt',
-          'state'
-        ])
+    match /travelPlannerUsers/{userId} {
+      allow read, delete: if owns(userId);
+      allow create, update: if owns(userId)
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.schema == 'travelPlannerState'
         && request.resource.data.schemaVersion == 1
         && request.resource.data.state is map;
     }
 
-    match /travelPlannerUsers/{userId} {
-      allow read: if isSignedInUser(userId);
-      allow create: if isSignedInUser(userId) && hasValidBackupShape();
-      allow update: if isSignedInUser(userId)
-        && resource.data.ownerUid == request.auth.uid
-        && hasValidBackupShape();
-      allow delete: if isSignedInUser(userId);
-    }
-
     match /communityTrips/{tripId} {
       allow read: if true;
-
-      // Publication d'un voyage dans la galerie publique.
-      // Compatible avec Google, e-mail/mot de passe et invité anonyme.
-      allow create: if isSignedIn()
+      allow create: if signedIn()
         && request.resource.data.ownerUid == request.auth.uid
-        && request.resource.data.title is string
-        && request.resource.data.category is string
         && request.resource.data.trip is map;
-
-      // Le propriétaire ou l'admin peut modifier une publication.
-      // Tout utilisateur connecté peut seulement mettre à jour son vote.
-      allow update: if isSignedIn()
-        && (
-          resource.data.ownerUid == request.auth.uid
-          || isAdmin()
-          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes', 'score', 'updatedAt'])
-        );
-
-      allow delete: if isSignedIn()
-        && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow update: if signedIn();
+      allow delete: if signedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
     }
 
     match /{document=**} {
