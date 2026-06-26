@@ -365,7 +365,8 @@
       <strong>${U.escapeHtml(step.name)}</strong>
       <span>${U.escapeHtml(step.type || 'étape')}</span>
       ${step.address ? `<small>${U.escapeHtml(step.address)}</small>` : ''}
-      ${step.arrivalDate ? `<small>${U.formatDate(step.arrivalDate)}</small>` : ''}
+      <small>Arrivée : ${U.formatDateTime(step.arrivalDate, step.arrivalTime, 'à définir')}</small>
+      <small>Départ : ${U.formatDateTime(step.departureDate, step.departureTime, 'à définir')}</small>
     `;
     tooltipEl.style.transform = `translate(${Math.round(pos.x)}px, ${Math.round(pos.y - 74)}px) translate(-50%, -100%)`;
     clearTimeout(showTooltip.timer);
@@ -431,7 +432,8 @@
     container.innerHTML = steps.map((step, index) => `
       <button class="map-step" data-focus-step="${step.id}">
         <strong>${index + 1}. ${U.escapeHtml(step.name)}</strong>
-        <small>${U.escapeHtml(step.type || 'étape')} · ${U.escapeHtml(step.address || (U.isValidCoord(step) ? `${Number(step.lat).toFixed(4)}, ${Number(step.lng).toFixed(4)}` : 'coordonnées manquantes'))}</small>
+        <small>${U.escapeHtml(step.type || 'étape')} · ${U.formatDateTime(step.arrivalDate, step.arrivalTime, 'arrivée à définir')}</small>
+        <small>${U.escapeHtml(step.address || (U.isValidCoord(step) ? `${Number(step.lat).toFixed(4)}, ${Number(step.lng).toFixed(4)}` : 'coordonnées manquantes'))}</small>
       </button>
     `).join('');
     container.querySelectorAll('[data-focus-step]').forEach(button => {
@@ -464,6 +466,10 @@
                 <span>${U.isValidCoord(step) && U.isValidCoord(next) ? U.formatDistance(estimate.distance) : 'coordonnées à compléter'}</span>
                 <span>${U.isValidCoord(step) && U.isValidCoord(next) ? U.formatDuration(estimate.duration) : 'durée inconnue'}</span>
                 <span>${U.formatMoney(cost, trip.currency)}</span>
+              </div>
+              <div class="route-time-mini">
+                <span><b>Départ</b>${U.formatDateTime(step.departureDate || step.arrivalDate, step.departureTime, 'à définir')}</span>
+                <span><b>Arrivée</b>${U.formatDateTime(next.arrivalDate || next.departureDate, next.arrivalTime, 'à définir')}</span>
               </div>
               <div class="route-editor">
                 <label>Transport

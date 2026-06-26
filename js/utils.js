@@ -72,6 +72,22 @@
     return new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }).format(date);
   }
 
+  function formatTime(timeString) {
+    if (!timeString) return 'heure non renseignée';
+    const match = String(timeString).match(/^(\d{1,2}):(\d{2})/);
+    if (!match) return timeString;
+    return `${match[1].padStart(2, '0')} h ${match[2]}`;
+  }
+
+  function formatDateTime(dateString, timeString, fallback = 'non renseigné') {
+    const hasDate = Boolean(dateString);
+    const hasTime = Boolean(timeString);
+    if (!hasDate && !hasTime) return fallback;
+    if (hasDate && hasTime) return `${formatDate(dateString)} · ${formatTime(timeString)}`;
+    if (hasDate) return formatDate(dateString);
+    return formatTime(timeString);
+  }
+
   function dateDiffDays(start, end) {
     if (!start || !end) return 0;
     const a = new Date(`${start}T12:00:00`);
@@ -190,6 +206,8 @@
     toNumber,
     isValidCoord,
     formatDate,
+    formatTime,
+    formatDateTime,
     formatMoney,
     formatDistance,
     formatDuration,

@@ -602,10 +602,10 @@
       pace: 'normal',
       interests: 'ville, gastronomie, culture, photo',
       steps: [
-        { order: 0, name: 'Paris', type: 'ville', lat: 48.8566, lng: 2.3522, arrivalDate: '2026-07-12', departureDate: '2026-07-12', priority: 'indispensable', color: '#2563eb', transportToNext: 'car', notes: 'Départ le matin.' },
-        { order: 1, name: 'Lyon', type: 'ville', lat: 45.764, lng: 4.8357, arrivalDate: '2026-07-12', departureDate: '2026-07-14', cost: 240, priority: 'indispensable', color: '#16a34a', transportToNext: 'car', segmentNote: 'Prévoir une pause sur l’autoroute.' },
-        { order: 2, name: 'Milan', type: 'ville', lat: 45.4642, lng: 9.19, arrivalDate: '2026-07-14', departureDate: '2026-07-16', cost: 280, priority: 'optionnel', color: '#f59e0b', transportToNext: 'train' },
-        { order: 3, name: 'Venise', type: 'ville', lat: 45.4408, lng: 12.3155, arrivalDate: '2026-07-16', departureDate: '2026-07-18', cost: 360, priority: 'indispensable', color: '#dc2626' }
+        { order: 0, name: 'Paris', type: 'ville', lat: 48.8566, lng: 2.3522, arrivalDate: '2026-07-12', arrivalTime: '08:00', departureDate: '2026-07-12', departureTime: '09:00', priority: 'indispensable', color: '#2563eb', transportToNext: 'car', notes: 'Départ le matin.' },
+        { order: 1, name: 'Lyon', type: 'ville', lat: 45.764, lng: 4.8357, arrivalDate: '2026-07-12', arrivalTime: '13:45', departureDate: '2026-07-14', departureTime: '10:00', cost: 240, priority: 'indispensable', color: '#16a34a', transportToNext: 'car', segmentNote: 'Prévoir une pause sur l’autoroute.' },
+        { order: 2, name: 'Milan', type: 'ville', lat: 45.4642, lng: 9.19, arrivalDate: '2026-07-14', arrivalTime: '15:30', departureDate: '2026-07-16', departureTime: '11:15', cost: 280, priority: 'optionnel', color: '#f59e0b', transportToNext: 'train' },
+        { order: 3, name: 'Venise', type: 'ville', lat: 45.4408, lng: 12.3155, arrivalDate: '2026-07-16', arrivalTime: '14:10', departureDate: '2026-07-18', departureTime: '18:00', cost: 360, priority: 'indispensable', color: '#dc2626' }
       ],
       expenses: [
         { label: 'Hôtels', category: 'logement', amount: 680, status: 'prévue', date: '2026-07-12' },
@@ -644,23 +644,40 @@
       list.innerHTML = '<div class="empty-state">Ajoute un départ, des arrêts et une destination finale.</div>';
       return;
     }
-    list.innerHTML = steps.map((step, index) => `
-      <article class="step-row">
-        <div class="step-marker" style="background:${step.color || '#2563eb'}">${index + 1}</div>
-        <div>
-          <span class="badge">${U.escapeHtml(step.type)} · ${U.escapeHtml(step.priority)}</span>
-          <h3>${U.escapeHtml(step.name)}</h3>
-          <p>${U.formatDate(step.arrivalDate)} → ${U.formatDate(step.departureDate)} · ${U.isValidCoord(step) ? `${step.lat}, ${step.lng}` : 'coordonnées manquantes'}${step.cost ? ` · ${U.formatMoney(step.cost, trip.currency)}` : ''}</p>
-          ${step.notes ? `<p>${U.escapeHtml(step.notes)}</p>` : ''}
-        </div>
-        <div class="row-actions">
-          <button class="button" data-move-step="up" data-step-id="${step.id}" ${index === 0 ? 'disabled' : ''}>↑</button>
-          <button class="button" data-move-step="down" data-step-id="${step.id}" ${index === steps.length - 1 ? 'disabled' : ''}>↓</button>
-          <button class="button" data-edit-step="${step.id}">Modifier</button>
-          <button class="button" data-delete-step="${step.id}">Supprimer</button>
-        </div>
-      </article>
-    `).join('');
+    list.innerHTML = steps.map((step, index) => {
+      const arrival = U.formatDateTime(step.arrivalDate, step.arrivalTime, 'arrivée à définir');
+      const departure = U.formatDateTime(step.departureDate, step.departureTime, 'départ à définir');
+      const coordLabel = U.isValidCoord(step) ? `${Number(step.lat).toFixed(4)}, ${Number(step.lng).toFixed(4)}` : 'coordonnées manquantes';
+      return `
+        <article class="step-row step-row--premium">
+          <div class="step-marker step-marker--premium" style="background:${step.color || '#2563eb'}">
+            <span>${index + 1}</span>
+          </div>
+          <div class="step-row__content">
+            <div class="step-row__head">
+              <div>
+                <span class="badge badge--glass">${U.escapeHtml(step.type)} · ${U.escapeHtml(step.priority)}</span>
+                <h3>${U.escapeHtml(step.name)}</h3>
+              </div>
+              ${step.cost ? `<strong class="money-pill">${U.formatMoney(step.cost, trip.currency)}</strong>` : ''}
+            </div>
+            <div class="step-date-grid">
+              <div class="time-card time-card--arrival"><small>Arrivée</small><strong>${arrival}</strong></div>
+              <div class="time-card time-card--departure"><small>Départ</small><strong>${departure}</strong></div>
+              <div class="time-card"><small>Position</small><strong>${U.escapeHtml(coordLabel)}</strong></div>
+            </div>
+            ${step.address ? `<p class="step-address">${U.escapeHtml(step.address)}</p>` : ''}
+            ${step.duration || step.notes ? `<p class="step-notes">${step.duration ? `<strong>${U.escapeHtml(step.duration)}</strong> · ` : ''}${U.escapeHtml(step.notes || '')}</p>` : ''}
+          </div>
+          <div class="row-actions row-actions--stacked">
+            <button class="button" data-move-step="up" data-step-id="${step.id}" ${index === 0 ? 'disabled' : ''}>↑</button>
+            <button class="button" data-move-step="down" data-step-id="${step.id}" ${index === steps.length - 1 ? 'disabled' : ''}>↓</button>
+            <button class="button button--soft" data-edit-step="${step.id}">Modifier</button>
+            <button class="button" data-delete-step="${step.id}">Supprimer</button>
+          </div>
+        </article>
+      `;
+    }).join('');
     list.querySelectorAll('[data-edit-step]').forEach(button => button.addEventListener('click', () => openStepDialog(button.dataset.editStep)));
     list.querySelectorAll('[data-delete-step]').forEach(button => button.addEventListener('click', () => deleteStep(button.dataset.deleteStep)));
     list.querySelectorAll('[data-move-step]').forEach(button => button.addEventListener('click', () => moveStep(button.dataset.stepId, button.dataset.moveStep)));
@@ -680,7 +697,9 @@
     form.elements.lng.value = step?.lng ?? '';
     if (form.elements.address) form.elements.address.value = step?.address || '';
     form.elements.arrivalDate.value = step?.arrivalDate || defaultArrivalDate || '';
+    if (form.elements.arrivalTime) form.elements.arrivalTime.value = step?.arrivalTime || '';
     form.elements.departureDate.value = step?.departureDate || '';
+    if (form.elements.departureTime) form.elements.departureTime.value = step?.departureTime || '';
     form.elements.duration.value = step?.duration || '';
     form.elements.cost.value = step?.cost || '';
     form.elements.priority.value = step?.priority || 'optionnel';
@@ -709,7 +728,9 @@
       lng: data.get('lng') === '' ? '' : Number(data.get('lng')),
       address: String(data.get('address') || ''),
       arrivalDate: String(data.get('arrivalDate') || ''),
+      arrivalTime: String(data.get('arrivalTime') || ''),
       departureDate: String(data.get('departureDate') || ''),
+      departureTime: String(data.get('departureTime') || ''),
       duration: String(data.get('duration') || ''),
       cost: Number(data.get('cost')) || 0,
       priority: String(data.get('priority') || 'optionnel'),
