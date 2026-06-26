@@ -3,15 +3,11 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isSignedIn() {
-      return request.auth != null;
+    function isSignedInUser(userId) {
+      return request.auth != null && request.auth.uid == userId;
     }
 
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    function hasValidPrivateState() {
+    function hasValidBackupShape() {
       return request.resource.data.keys().hasOnly([
         'ownerUid',
         'ownerEmail',
@@ -27,78 +23,52 @@ service cloud.firestore {
       && request.resource.data.state is map;
     }
 
-    function hasValidPublicTrip() {
+    function hasValidCommunityShape() {
       return request.resource.data.keys().hasOnly([
-        'ownerUid',
-        'ownerEmail',
-        'public',
-        'schema',
-        'schemaVersion',
-        'shareId',
-        'trip',
-        'options',
-        'clientUpdatedAt',
-        'updatedAt'
+        'schema', 'schemaVersion', 'id', 'ownerUid', 'ownerEmail', 'ownerName',
+        'sourceTripId', 'title', 'country', 'area', 'category', 'style', 'pace',
+        'interests', 'description', 'coverImage', 'currency', 'publicBudget',
+        'hideBudget', 'hideNotes', 'allowCopy', 'durationDays', 'stepsCount',
+        'highlights', 'trip', 'votes', 'upVotes', 'downVotes', 'trendScore',
+        'publishedAt', 'updatedAt'
       ])
-      && request.resource.data.ownerUid == request.auth.uid
-      && request.resource.data.public == true
-      && request.resource.data.schema == 'travelPlannerPublicTrip'
+      && request.resource.data.schema == 'communityTrip'
       && request.resource.data.schemaVersion == 1
-      && request.resource.data.shareId is string
+      && request.resource.data.ownerUid == request.auth.uid
+      && request.resource.data.title is string
+      && request.resource.data.country is string
+      && request.resource.data.category is string
       && request.resource.data.trip is map;
     }
 
     match /travelPlannerUsers/{userId} {
-      allow read: if isOwner(userId);
-      allow create: if isOwner(userId) && hasValidPrivateState();
-      allow update: if isOwner(userId)
+      allow read: if isSignedInUser(userId);
+
+      allow create: if isSignedInUser(userId)
+        && hasValidBackupShape();
+
+      allow update: if isSignedInUser(userId)
         && resource.data.ownerUid == request.auth.uid
-        && hasValidPrivateState();
-      allow delete: if isOwner(userId);
+        && hasValidBackupShape();
+
+      allow delete: if isSignedInUser(userId);
     }
 
+    match /communityTrips/{tripId} {
+      allow read: if true;
 
-    function hasValidCollaborativeTrip() {
-      return request.resource.data.keys().hasOnly([
-        'ownerUid',
-        'ownerEmail',
-        'collaborators',
-        'schema',
-        'schemaVersion',
-        'shareId',
-        'trip',
-        'clientUpdatedAt',
-        'updatedAt'
-      ])
-      && request.resource.data.ownerUid == request.auth.uid
-      && request.resource.data.schema == 'travelPlannerCollaborativeTrip'
-      && request.resource.data.schemaVersion == 1
-      && request.resource.data.shareId is string
-      && request.resource.data.collaborators is list
-      && request.resource.data.trip is map;
-    }
+      allow create: if request.auth != null
+        && hasValidCommunityShape();
 
-    function canAccessSharedTrip() {
-      return isSignedIn()
-        && (resource.data.ownerUid == request.auth.uid
-          || request.auth.token.email in resource.data.collaborators);
-    }
+      allow update: if request.auth != null && (
+        (resource.data.ownerUid == request.auth.uid && hasValidCommunityShape())
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'votes', 'upVotes', 'downVotes', 'trendScore', 'updatedAt'
+        ])
+      );
 
-    match /publicTrips/{shareId} {
-      allow read: if resource.data.public == true
-        && resource.data.schema == 'travelPlannerPublicTrip';
-      allow create: if isSignedIn() && hasValidPublicTrip();
-      allow update: if isSignedIn()
-        && resource.data.ownerUid == request.auth.uid
-        && hasValidPublicTrip();
-      allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
-    }
-
-
-    match /sharedTrips/{shareId} {
-      allow read, update: if canAccessSharedTrip();
-      allow create: if isSignedIn() && hasValidCollaborativeTrip();
-      allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow delete: if request.auth != null
+        && resource.data.ownerUid == request.auth.uid;
     }
 
     match /{document=**} {

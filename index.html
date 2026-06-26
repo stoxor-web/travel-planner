@@ -26,6 +26,7 @@
 
       <nav class="nav-list">
         <button class="nav-item is-active" data-view-link="dashboard">🏠 <span>Accueil</span></button>
+        <button class="nav-item" data-view-link="community">🌍 <span>Communauté</span></button>
         <button class="nav-item" data-view-link="trip">🧭 <span>Voyage</span></button>
         <button class="nav-item" data-view-link="map">🗺️ <span>Carte</span></button>
         <button class="nav-item" data-view-link="itinerary">🗓️ <span>Planning</span></button>
@@ -89,6 +90,58 @@
         </div>
         <div id="tripTemplates" class="template-grid"></div>
         <div id="tripsGrid" class="trips-grid"></div>
+      </section>
+
+
+
+      <section class="view" id="view-community" aria-labelledby="pageTitle">
+        <div class="community-hero panel">
+          <div>
+            <p class="eyebrow">Communauté Travel Planner</p>
+            <h2>Explore les voyages partagés</h2>
+            <p>Découvre des itinéraires publiés par les utilisateurs, classe-les par pays ou catégorie, vote pour les meilleurs parcours et copie une idée dans ton propre espace.</p>
+          </div>
+          <div class="community-hero__actions">
+            <button class="button button--primary" id="communityPublishBtn">Partager mon voyage actif</button>
+            <button class="button" id="communityRefreshBtn">Actualiser</button>
+          </div>
+        </div>
+
+        <div class="community-toolbar panel">
+          <label>Recherche
+            <input class="input" id="communitySearchInput" type="search" placeholder="Japon, roadtrip, plage, budget..." />
+          </label>
+          <label>Pays / zone
+            <select class="input" id="communityCountryFilter"><option value="">Tous les pays</option></select>
+          </label>
+          <label>Catégorie
+            <select class="input" id="communityCategoryFilter">
+              <option value="">Toutes</option>
+              <option value="roadtrip">Roadtrip</option>
+              <option value="citybreak">City break</option>
+              <option value="aventure">Aventure</option>
+              <option value="nature">Nature</option>
+              <option value="plage">Plage</option>
+              <option value="culture">Culture</option>
+              <option value="gastronomie">Gastronomie</option>
+              <option value="famille">Famille</option>
+              <option value="budget">Petit budget</option>
+              <option value="confort">Confort</option>
+            </select>
+          </label>
+          <label>Trier
+            <select class="input" id="communitySortFilter">
+              <option value="trend">Tendance</option>
+              <option value="recent">Plus récents</option>
+              <option value="popular">Plus votés</option>
+              <option value="duration">Durée</option>
+              <option value="budgetLow">Budget croissant</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="communityStats" class="community-stats stats-grid"></div>
+        <div id="communityGrid" class="community-grid"></div>
       </section>
 
       <section class="view" id="view-trip" aria-labelledby="pageTitle">
@@ -462,6 +515,47 @@
       </menu>
     </form>
   </dialog>
+
+  <dialog id="communityPublishDialog" class="modal">
+    <form method="dialog" id="communityPublishForm" class="modal__content form-grid">
+      <div class="panel__header wide">
+        <div>
+          <p class="eyebrow">Publication communautaire</p>
+          <h2>Partager ce voyage</h2>
+        </div>
+        <button type="button" class="icon-button" data-close-dialog="communityPublishDialog" aria-label="Fermer">×</button>
+      </div>
+      <p class="wide muted">La publication crée une copie publique de consultation. Les autres utilisateurs peuvent voter et copier l’itinéraire si tu l’autorises.</p>
+      <label>Titre public<input class="input" name="title" required placeholder="Roadtrip Japon 12 jours" /></label>
+      <label>Pays / zone<input class="input" name="country" required placeholder="Japon" /></label>
+      <label>Catégorie
+        <select class="input" name="category">
+          <option value="roadtrip">Roadtrip</option>
+          <option value="citybreak">City break</option>
+          <option value="aventure">Aventure</option>
+          <option value="nature">Nature</option>
+          <option value="plage">Plage</option>
+          <option value="culture">Culture</option>
+          <option value="gastronomie">Gastronomie</option>
+          <option value="famille">Famille</option>
+          <option value="budget">Petit budget</option>
+          <option value="confort">Confort</option>
+        </select>
+      </label>
+      <label>Image de couverture<input class="input" name="coverImage" type="url" placeholder="https://..." /></label>
+      <label class="wide">Description publique<textarea class="input" name="description" rows="4" placeholder="Explique à qui ce voyage peut servir, les points forts, le rythme..."></textarea></label>
+      <div class="wide chip-options">
+        <label class="chip-check"><input type="checkbox" name="hideBudget" /> <span>Masquer le budget</span></label>
+        <label class="chip-check"><input type="checkbox" name="hideNotes" checked /> <span>Masquer les notes privées</span></label>
+        <label class="chip-check"><input type="checkbox" name="allowCopy" checked /> <span>Autoriser la copie dans un espace personnel</span></label>
+      </div>
+      <menu class="modal__actions wide">
+        <button type="button" class="button" data-close-dialog="communityPublishDialog">Annuler</button>
+        <button type="submit" class="button button--primary" value="default">Publier dans la communauté</button>
+      </menu>
+    </form>
+  </dialog>
+
   <dialog id="stepDialog" class="modal">
     <form method="dialog" id="stepForm" class="modal__content form-grid">
       <div class="panel__header wide">
@@ -503,6 +597,10 @@
       <label>Heure d’arrivée<input class="input" name="arrivalTime" type="time" /></label>
       <label>Date de départ<input class="input" name="departureDate" type="date" /></label>
       <label>Heure de départ<input class="input" name="departureTime" type="time" /></label>
+      <div id="stepDateStatus" class="date-logic-banner wide" aria-live="polite">
+        <strong>Logique d’étape</strong>
+        <span>Indique quand tu arrives sur place, puis quand tu repars. Le départ ne peut pas être avant l’arrivée.</span>
+      </div>
       <label>Durée prévue<input class="input" name="duration" placeholder="2 nuits, 3 h, demi-journée..." /></label>
       <label>Coût estimé<input class="input" name="cost" type="number" step="0.01" min="0" /></label>
       <label>Priorité
