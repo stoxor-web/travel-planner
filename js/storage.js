@@ -1,14 +1,42 @@
 (function(){
-  const U=window.TravelUtils;
-  const defaults=()=>({version:413,activeTripId:null,settings:{theme:'light',autosaveMinutes:3,carSpeed:80,trainSpeed:110,walkSpeed:5},trips:[]});
-  function normalizeStep(s={}){return {id:s.id||U.uid(),name:s.name||'Nouvelle étape',type:s.type||'ville',address:s.address||'',lat:s.lat??'',lng:s.lng??'',arrivalDate:s.arrivalDate||s.date||'',arrivalTime:s.arrivalTime||'',departureDate:s.departureDate||s.arrivalDate||s.date||'',departureTime:s.departureTime||'',cost:U.num(s.cost),priority:s.priority||'indispensable',notes:s.notes||'',color:s.color||'#0ea5a7'};}
-  function normalizeExpense(e={}){return {id:e.id||U.uid(),label:e.label||'Dépense',category:e.category||'autres',planned:U.num(e.planned??e.amount),actual:U.num(e.actual),status:e.status||'prévue',paidBy:e.paidBy||'',sharedWith:Array.isArray(e.sharedWith)?e.sharedWith:U.parsePeople(e.sharedWith),date:e.date||'',note:e.note||''};}
-  function defaultChecklists(){return [{id:U.uid(),title:'Documents',items:[{id:U.uid(),text:'Passeport / carte d’identité',done:false},{id:U.uid(),text:'Billets et réservations',done:false}]},{id:U.uid(),title:'Avant départ',items:[{id:U.uid(),text:'Vérifier météo',done:false},{id:U.uid(),text:'Préparer chargeurs',done:false}]}];}
-  function normalizeTrip(t={}){const id=t.id||U.uid(); const travellersNames=Array.isArray(t.travellersNames)?t.travellersNames:U.parsePeople(t.travellersNames); return {id,name:t.name||'Nouveau voyage',area:t.area||'',coverImage:t.coverImage||'',startDate:t.startDate||'',endDate:t.endDate||'',travellers:Math.max(1,U.num(t.travellers)||travellersNames.length||1),travellersNames, maxBudget:U.num(t.maxBudget),currency:t.currency||'€',status:t.status||'brouillon',style:t.style||'équilibré',pace:t.pace||'normal',interests:t.interests||'',description:t.description||'',steps:Array.isArray(t.steps)?t.steps.map(normalizeStep):[],expenses:Array.isArray(t.expenses)?t.expenses.map(normalizeExpense):[],checklists:Array.isArray(t.checklists)?t.checklists.map(b=>({id:b.id||U.uid(),title:b.title||'Liste',items:Array.isArray(b.items)?b.items.map(i=>({id:i.id||U.uid(),text:i.text||'Tâche',done:!!i.done})):[]})):defaultChecklists(),journal:Array.isArray(t.journal)?t.journal:[]};}
-  function normalize(state){const s=Object.assign(defaults(),state||{}); s.settings=Object.assign(defaults().settings,s.settings||{}); s.trips=Array.isArray(s.trips)?s.trips.map(normalizeTrip):[]; if(!s.activeTripId||!s.trips.some(t=>t.id===s.activeTripId)) s.activeTripId=s.trips[0]?.id||null; return s;}
-  const load=()=>normalize(JSON.parse(localStorage.getItem('travelPlanner:lastCache')||'null'));
-  const save=s=>{const n=normalize(s); localStorage.setItem('travelPlanner:lastCache',JSON.stringify(n)); return n;};
-  const getTrip=s=>normalize(s).trips.find(t=>t.id===s.activeTripId)||null;
-  function createTrip(template={}){return normalizeTrip({name:template.name||'Nouveau voyage',area:template.area||'',status:'brouillon',style:template.style||'équilibré',currency:'€',travellers:1,steps:template.steps||[]});}
-  window.TravelStorage={defaults,normalize,load,save,getTrip,createTrip,normalizeTrip,normalizeStep,normalizeExpense,defaultChecklists};
+  'use strict';
+  const U = window.TravelUtils;
+  const emptyState = { version: 415, activeTripId: null, settings: U.defaultSettings, trips: [] };
+  function createEmptyState(){ return U.clone(emptyState); }
+  function normalizeExpense(expense={}){
+    return {
+      id: expense.id || U.uid('expense'), label: expense.label || expense.title || 'Dépense', category: expense.category || 'autres', planned: U.toNumber(expense.planned ?? expense.amount,0), actual: U.toNumber(expense.actual ?? expense.amount,0), status: expense.status || 'prévue', paidBy: expense.paidBy || '', sharedWith: U.normalizeNameList(expense.sharedWith || expense.participants), date: expense.date || '', stepId: expense.stepId || '', note: expense.note || ''
+    };
+  }
+  function normalizeStep(step={}, order=0){
+    return {
+      id: step.id || U.uid('step'), order: Number.isFinite(Number(step.order)) ? Number(step.order) : order,
+      name: step.name || 'Étape', type: step.type || 'ville', address: step.address || '', lat: step.lat ?? '', lng: step.lng ?? '', arrivalDate: step.arrivalDate || step.date || '', arrivalTime: step.arrivalTime || '', departureDate: step.departureDate || step.arrivalDate || '', departureTime: step.departureTime || '', duration: step.duration || '', cost: U.toNumber(step.cost,0), priority: step.priority || 'optionnel', color: step.color || '#2563eb', links: Array.isArray(step.links)?step.links:U.normalizeNameList(step.links), notes: step.notes || '', transportToNext: step.transportToNext || 'car', segmentCost: U.toNumber(step.segmentCost,0), segmentNote: step.segmentNote || '', segmentReference: step.segmentReference || '', journal: { notes:'', photoLinks:'', rating:'', realExpenses:'', weather:'', afterthoughts:'', ...(step.journal||{}) }
+    };
+  }
+  function normalizeTrip(trip={}){
+    const now = new Date().toISOString();
+    const normalized = {
+      id: trip.id || U.uid('trip'), name: trip.name || 'Nouveau voyage', description: trip.description || '', area: trip.area || '', coverImage: trip.coverImage || '', startDate: trip.startDate || '', endDate: trip.endDate || '', travellers: Math.max(1,U.toNumber(trip.travellers,1)), travellersNames: U.normalizeNameList(trip.travellersNames || trip.people || ''), maxBudget: U.toNumber(trip.maxBudget,0), currency: trip.currency || '€', status: trip.status || 'brouillon', style: trip.style || 'équilibré', pace: trip.pace || 'normal', interests: trip.interests || '', steps: Array.isArray(trip.steps)?trip.steps.map(normalizeStep):[], expenses: Array.isArray(trip.expenses)?trip.expenses.map(normalizeExpense):[], checklists: Array.isArray(trip.checklists)?trip.checklists:U.createDefaultChecklists(), createdAt: trip.createdAt || now, updatedAt: now
+    };
+    if(!normalized.travellersNames.length) normalized.travellersNames = Array.from({length: normalized.travellers},(_,i)=>`Voyageur ${i+1}`);
+    normalized.travellers = Math.max(normalized.travellers, normalized.travellersNames.length || 1);
+    normalized.steps = U.sortSteps(normalized.steps).map((s,i)=>({...s,order:i}));
+    return normalized;
+  }
+  function normalizeState(state={}){
+    const merged = U.deepMerge(createEmptyState(), state || {});
+    merged.trips = Array.isArray(merged.trips) ? merged.trips.map(normalizeTrip) : [];
+    merged.settings = U.deepMerge(U.defaultSettings, merged.settings || {});
+    if(!merged.activeTripId || !merged.trips.some(t=>t.id===merged.activeTripId)) merged.activeTripId = merged.trips[0]?.id || null;
+    merged.version = 415;
+    return merged;
+  }
+  function load(){ return createEmptyState(); }
+  function save(state){ return normalizeState(state); }
+  function getTrip(state,id=state?.activeTripId){ const normalized = normalizeState(state); return normalized.trips.find(t=>t.id===id) || null; }
+  function upsertTrip(state,trip){ const next=normalizeState(state); const normalized=normalizeTrip(trip); const i=next.trips.findIndex(t=>t.id===normalized.id); if(i>=0) next.trips[i]=normalized; else next.trips.unshift(normalized); next.activeTripId=normalized.id; return save(next); }
+  function deleteTrip(state,id){ const next=normalizeState(state); next.trips=next.trips.filter(t=>t.id!==id); if(next.activeTripId===id) next.activeTripId=next.trips[0]?.id||null; return save(next); }
+  function duplicateTrip(state,id){ const original=getTrip(state,id); if(!original) return normalizeState(state); const copy=normalizeTrip({...U.clone(original),id:U.uid('trip'),name:`${original.name} — copie`,status:'brouillon'}); return upsertTrip(state,copy); }
+  window.TravelStorage = { load, save, getTrip, upsertTrip, deleteTrip, duplicateTrip, normalizeTrip, normalizeState, normalizeStep, normalizeExpense, createEmptyState };
 })();
