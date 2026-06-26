@@ -216,8 +216,16 @@
     return new Error(messages[code] || error?.message || 'Connexion impossible.');
   }
 
+  function normalizeFirestoreError(error, context = '') {
+    const code = error?.code || '';
+    if (code === 'permission-denied' || /Missing or insufficient permissions/i.test(error?.message || '')) {
+      return new Error(`${context ? context + ' : ' : ''}permissions Firebase insuffisantes. Copie le fichier firestore.rules de cette archive dans Firebase Console → Firestore Database → Rules, puis publie les règles.`);
+    }
+    return new Error(error?.message || `${context || 'Action Firebase'} impossible.`);
+  }
+
   function requireUser() {
-    if (!currentUser) throw new Error('Connecte-toi avec Google ou e-mail.');
+    if (!currentUser) throw new Error('Connecte-toi avec Google, e-mail ou invité.');
     if (!db || !modules) throw new Error('Firebase non initialisé.');
   }
 
@@ -349,15 +357,23 @@
       updatedAt: fsM.serverTimestamp(),
       trip: publicTrip(trip, options)
     };
-    const ref = await fsM.addDoc(fsM.collection(db, COMMUNITY), payload);
-    return { id: ref.id, ...payload };
+    try {
+      const ref = await fsM.addDoc(fsM.collection(db, COMMUNITY), payload);
+      return { id: ref.id, ...payload };
+    } catch (error) {
+      throw normalizeFirestoreError(error, 'Communauté');
+    }
   }
 
   async function listCommunityTrips() {
     await init();
     const { fsM } = modules;
-    const snap = await fsM.getDocs(fsM.collection(db, COMMUNITY));
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    try {
+      const snap = await fsM.getDocs(fsM.collection(db, COMMUNITY));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (error) {
+      throw normalizeFirestoreError(error, 'Chargement communauté');
+    }
   }
 
   async function voteCommunityTrip(id, value) {
@@ -365,24 +381,32 @@
     requireUser();
     const { fsM } = modules;
     const ref = fsM.doc(db, COMMUNITY, id);
-    await fsM.runTransaction(db, async tx => {
-      const snap = await tx.get(ref);
-      if (!snap.exists()) throw new Error('Publication introuvable.');
-      const data = snap.data();
-      const votes = { ...(data.votes || {}) };
-      const next = Number(value) || 0;
-      if (votes[currentUser.uid] === next) delete votes[currentUser.uid];
-      else votes[currentUser.uid] = next;
-      const score = Object.values(votes).reduce((a, b) => a + Number(b || 0), 0);
-      tx.update(ref, { votes, score, updatedAt: fsM.serverTimestamp() });
-    });
+    try {
+      await fsM.runTransaction(db, async tx => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error('Publication introuvable.');
+        const data = snap.data();
+        const votes = { ...(data.votes || {}) };
+        const next = Number(value) || 0;
+        if (votes[currentUser.uid] === next) delete votes[currentUser.uid];
+        else votes[currentUser.uid] = next;
+        const score = Object.values(votes).reduce((a, b) => a + Number(b || 0), 0);
+        tx.update(ref, { votes, score, updatedAt: fsM.serverTimestamp() });
+      });
+    } catch (error) {
+      throw normalizeFirestoreError(error, 'Vote communauté');
+    }
   }
 
   async function deleteCommunityTrip(id) {
     await init();
     requireUser();
     const { fsM } = modules;
-    await fsM.deleteDoc(fsM.doc(db, COMMUNITY, id));
+    try {
+      await fsM.deleteDoc(fsM.doc(db, COMMUNITY, id));
+    } catch (error) {
+      throw normalizeFirestoreError(error, 'Retrait communauté');
+    }
   }
 
   function getUser() { return currentUser; }
