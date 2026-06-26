@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="description" content="Application personnelle de planification de voyages avec connexion Google." />
   <meta name="theme-color" content="#0b3b66" />
-  <link rel="icon" href="assets/icons/favicon.ico?v=20260626-v49-premium" sizes="any" />
-  <link rel="icon" type="image/png" href="assets/icons/ChatGPT%20Image%2025%20juin%202026%2C%2015_26_24.png?v=20260626-v49-premium" />
-  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png?v=20260626-v49-premium" />
-  <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png?v=20260626-v49-premium" />
-  <link rel="manifest" href="site.webmanifest?v=20260626-v49-premium" />
+  <link rel="icon" href="assets/icons/favicon.ico?v=20260626-v410-ui-share" sizes="any" />
+  <link rel="icon" type="image/png" href="assets/icons/ChatGPT%20Image%2025%20juin%202026%2C%2015_26_24.png?v=20260626-v410-ui-share" />
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png?v=20260626-v410-ui-share" />
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png?v=20260626-v410-ui-share" />
+  <link rel="manifest" href="site.webmanifest?v=20260626-v410-ui-share" />
   <title>Travel Planner — Lucas S. Edition</title>
   <style id="critical-ui-stability">
     [hidden] { display: none !important; }
@@ -18,7 +18,7 @@
     dialog:not([open]) { display: none !important; }
     .search-results:empty { display: none !important; }
   </style>
-  <link rel="stylesheet" href="css/style.css?v=20260626-v49-premium" />
+  <link rel="stylesheet" href="css/style.css?v=20260626-v410-ui-share" />
 </head>
 <body>
   <div class="app-shell">
@@ -47,7 +47,6 @@
 
       <div class="sidebar__footer">
         <button class="button button--primary full" id="newTripBtn">+ Nouveau voyage</button>
-        <small id="sidebarAccountState">Connexion requise</small>
       </div>
     </aside>
 
@@ -63,7 +62,10 @@
             <div id="globalSearchResults" class="search-results" hidden></div>
           </div>
           <select id="tripSelector" class="input" aria-label="Voyage sélectionné"></select>
-          <button class="button button--cloud" id="cloudAuthBtn" title="Connexion Google"><span class="cloud-dot"></span><span>Connexion</span></button>
+          <button class="button button--cloud auth-pill" id="cloudAuthBtn" title="Connexion Google" aria-live="polite">
+            <span class="cloud-dot" aria-hidden="true"></span>
+            <span class="auth-pill__text">Connexion Google</span>
+          </button>
           <button class="button" id="themeToggle" title="Basculer le thème">🌙</button>
         </div>
       </header>
@@ -388,7 +390,7 @@
 
           <div id="cloudStatus" class="cloud-status cloud-status--idle" role="status">
             <span class="cloud-status__dot"></span>
-            <span>Connexion requise.</span>
+            <span>Connecte-toi pour synchroniser tes voyages.</span>
           </div>
 
           <div class="cloud-profile-card" id="cloudProfile" hidden>
@@ -417,17 +419,20 @@
           </div>
         </div>
       </section>
-      <footer class="site-footer">
-        <div>
-          <strong>Travel Planner</strong>
-          <span>Planificateur personnel de voyages — service privé en ligne</span>
+      <footer class="site-footer site-footer--official">
+        <div class="site-footer__brand">
+          <img src="assets/icons/icon-192.png" alt="" />
+          <div>
+            <strong>Travel Planner</strong>
+            <span>Planificateur de voyages personnel, synchronisé avec Google.</span>
+          </div>
         </div>
-        <div class="site-footer__meta">
-          <span>Mentions légales</span>
-          <span>Données protégées par connexion Google</span>
-          <span>Contact : Lucas S.</span>
-          <span>Version V4.9 Premium</span>
-          <span>© <span id="legalYear"></span> — Créé par Lucas S.</span>
+        <div class="site-footer__legal">
+          <span>© <span id="legalYear"></span> Travel Planner</span>
+          <span>Créé par Lucas S.</span>
+          <span>Données privées hébergées par Firebase</span>
+          <span>Cartographie © OpenStreetMap</span>
+          <span>Version V4.10</span>
         </div>
       </footer>
     </main>
@@ -512,7 +517,7 @@
   </dialog>
 
   <dialog id="shareDialog" class="modal">
-    <form method="dialog" class="modal__content confirm-box share-options-box">
+    <form class="modal__content confirm-box share-options-box">
       <p class="eyebrow">Partage</p>
       <h2>Partager le voyage</h2>
       <p>Crée un lien de consultation propre. Les informations sensibles peuvent être masquées avant publication.</p>
@@ -525,7 +530,7 @@
       <small class="muted">La collaboration privée prépare une version éditable limitée aux comptes indiqués. Le lien public reste en lecture seule.</small>
       <input class="input" id="shareLinkInput" readonly placeholder="Le lien apparaîtra ici" />
       <menu class="modal__actions">
-        <button class="button" value="cancel">Fermer</button>
+        <button type="button" class="button" data-close-dialog="shareDialog">Fermer</button>
         <button type="button" class="button" id="createPublicShareBtn">Créer lien lecture seule</button>
         <button type="button" class="button" id="createPrivateShareBtn">Créer collaboration</button>
         <button type="button" class="button button--primary" id="copyShareLinkBtn">Copier le lien</button>
@@ -534,7 +539,7 @@
   </dialog>
 
   <dialog id="communityPublishDialog" class="modal">
-    <form method="dialog" id="communityPublishForm" class="modal__content form-grid">
+    <form id="communityPublishForm" class="modal__content form-grid">
       <div class="panel__header wide">
         <div>
           <p class="eyebrow">Publication communautaire</p>
@@ -685,15 +690,15 @@
     </form>
   </dialog>
 
-  <script src="js/utils.js?v=20260626-v49-premium"></script>
-  <script src="js/firebase-config.js?v=20260626-v49-premium"></script>
-  <script src="js/firebase-sync.js?v=20260626-v49-premium"></script>
-  <script src="js/storage.js?v=20260626-v49-premium"></script>
-  <script src="js/itinerary.js?v=20260626-v49-premium"></script>
-  <script src="js/budget.js?v=20260626-v49-premium"></script>
-  <script src="js/suggestions.js?v=20260626-v49-premium"></script>
-  <script src="js/geocoder.js?v=20260626-v49-premium"></script>
-  <script src="js/map.js?v=20260626-v49-premium"></script>
-  <script src="js/app.js?v=20260626-v49-premium"></script>
+  <script src="js/utils.js?v=20260626-v410-ui-share"></script>
+  <script src="js/firebase-config.js?v=20260626-v410-ui-share"></script>
+  <script src="js/firebase-sync.js?v=20260626-v410-ui-share"></script>
+  <script src="js/storage.js?v=20260626-v410-ui-share"></script>
+  <script src="js/itinerary.js?v=20260626-v410-ui-share"></script>
+  <script src="js/budget.js?v=20260626-v410-ui-share"></script>
+  <script src="js/suggestions.js?v=20260626-v410-ui-share"></script>
+  <script src="js/geocoder.js?v=20260626-v410-ui-share"></script>
+  <script src="js/map.js?v=20260626-v410-ui-share"></script>
+  <script src="js/app.js?v=20260626-v410-ui-share"></script>
 </body>
 </html>

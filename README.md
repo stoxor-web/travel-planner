@@ -1,64 +1,46 @@
-# Travel Planner — Lucas S. Edition
+# Travel Planner — V4.10 UI & Partage
 
-Version **V4.9 Premium**.
+Application web personnelle de planification de voyages créée par Lucas S., hébergeable sur GitHub Pages et synchronisée avec Firebase/Google.
 
-Application web personnelle de planification de voyages, hébergée sur GitHub Pages et synchronisée avec Firebase / Google.
+## Correctifs de cette version
 
-## Nouveautés V4.9
-
-- Accueil renforcé en centre de contrôle.
-- Cartes de voyages plus visuelles, avec image, statut, score et résumé utile.
-- Nouvelle page **Aujourd’hui** pour consulter rapidement le voyage pendant le séjour.
-- Assistant de cohérence plus détaillé : budget, horaires, style de voyage, oublis et corrections locales.
-- Détection des incohérences horaires : départ avant arrivée, trajet impossible, marge trop courte.
-- Budget/TriCount amélioré : voyageurs, payé par, participants et remboursements suggérés.
-- Page Communauté plus propre avec un **mode admin Lucas S.**.
-- Identité visuelle renforcée : couleurs de marque, cartes premium, footer officiel.
-- Firebase reste actif avec `js/firebase-config.js` inclus et configuré.
+- Footer officiel retravaillé avec mentions plus propres.
+- Suppression du texte permanent « Connexion requise » dans le bas de la navigation.
+- Bouton Google / connecté rendu lisible sur fond clair et sombre.
+- Publication Communauté renforcée : formulaire plus fiable, erreurs plus claires, règles Firestore assouplies pour éviter les blocages de publication.
+- Conservation de la configuration Firebase active dans `js/firebase-config.js`.
 - Aucun fichier `firebase-config.example`.
 
-## Installation GitHub Pages
+## Publication
 
-Remplace tout le contenu de ton dépôt `travel-planner` par le contenu du ZIP, puis publie :
+Remplace tout le contenu de ton dépôt GitHub Pages par le contenu de ce dossier, puis publie :
 
 ```bash
 git add .
-git commit -m "V4.9 premium"
+git commit -m "V4.10 correction interface et partage communaute"
 git push origin main
 ```
 
-Après publication, ouvre le site en navigation privée pour éviter un ancien cache.
+Ensuite, ouvre le site en navigation privée ou vide le cache du navigateur.
 
-## Firebase
+## Règles Firebase
 
-Le site utilise :
+Copie le contenu de `firestore.rules` dans Firebase Console → Firestore Database → Rules.
 
-- Firebase Authentication avec Google ;
-- Cloud Firestore pour les voyages privés ;
-- `communityTrips` pour les voyages publiés dans la communauté.
+La collection privée reste :
 
-Recopie le fichier `firestore.rules` dans Firebase Console → Firestore Database → Rules.
+```text
+travelPlannerUsers/{uid}
+```
 
-Le mode admin communautaire est réservé à :
+La communauté publique utilise :
+
+```text
+communityTrips/{tripId}
+```
+
+L’administrateur communautaire défini dans les règles est :
 
 ```text
 lucas.scribe01@gmail.com
-```
-
-## Fichiers principaux
-
-```text
-index.html
-css/style.css
-js/app.js
-js/storage.js
-js/firebase-config.js
-js/firebase-sync.js
-js/map.js
-js/itinerary.js
-js/budget.js
-js/suggestions.js
-js/utils.js
-firestore.rules
-assets/
 ```
