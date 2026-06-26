@@ -1043,6 +1043,7 @@
     const status = payload.status || CloudSync.getStatus();
     const provider = payload.provider || CloudSync.getProviderLabel?.() || '';
     const statusEl = document.getElementById('cloudStatus');
+    const welcomeCard = document.getElementById('authWelcomeCard');
     const profile = document.getElementById('cloudProfile');
     const avatar = document.getElementById('cloudAvatar');
     const name = document.getElementById('cloudUserName');
@@ -1059,7 +1060,13 @@
 
     document.body.classList.toggle('is-cloud-locked', !appReady || !user);
 
-    if (statusEl) statusEl.textContent = status || (configured ? 'Choisis Google, e-mail ou invité.' : 'Firebase non configuré.');
+    if (welcomeCard) welcomeCard.hidden = Boolean(user);
+    if (statusEl) {
+      const cleanStatus = status || (configured ? '' : 'Firebase non configuré.');
+      const showStatusLine = !configured || Boolean(user) || /erreur|impossible|permission|firebase|sauvegarde|charg/i.test(cleanStatus);
+      statusEl.textContent = cleanStatus;
+      statusEl.hidden = !cleanStatus || !showStatusLine;
+    }
     if (profile) profile.hidden = !user;
     if (avatar) {
       if (user?.photoURL) {
@@ -1079,7 +1086,7 @@
         const picture = user.photoURL ? `<img src="${U.escapeHtml(user.photoURL)}" alt="" />` : U.escapeHtml(label.slice(0, 1).toUpperCase());
         topButton.innerHTML = `<span class="auth-avatar">${picture}</span><span class="auth-copy"><strong>Connecté</strong><small>${U.escapeHtml(label)}</small></span>`;
       } else {
-        topButton.innerHTML = '<span class="auth-avatar">↗</span><span class="auth-copy"><strong>Connexion</strong><small>Google, e-mail ou invité</small></span>';
+        topButton.innerHTML = '<span class="auth-avatar">↗</span><span class="auth-copy"><strong>Se connecter</strong><small>Choisir un accès</small></span>';
       }
     }
 
@@ -1109,7 +1116,7 @@
       return;
     }
     switchView('settings');
-    showStatus(CloudSync.getUser() ? 'Compte connecté.' : 'Choisis Google, e-mail ou invité pour te connecter.');
+    showStatus(CloudSync.getUser() ? 'Compte connecté.' : 'Choisis ton mode de connexion.');
   }
 
   async function handleCloudSignIn() {
