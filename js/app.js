@@ -965,6 +965,78 @@
 
   function renderSuggestions() {
     Suggestions.render($('#scorePanel'), $('#suggestionsList'), activeTrip(), state.settings);
+    bindSuggestionsActions();
+  }
+
+  function bindSuggestionsActions() {
+    const list = $('#suggestionsList');
+    const score = $('#scorePanel');
+    if (score && !score.dataset.boundSuggestions) {
+      score.dataset.boundSuggestions = 'true';
+      score.addEventListener('click', event => {
+        const autoBtn = event.target.closest('#autoFixSuggestionsBtn');
+        const promptBtn = event.target.closest('#copyAiPromptBtn');
+        const webBtn = event.target.closest('#openWebSuggestionsBtn');
+        if (autoBtn) autoFixSuggestions();
+        if (promptBtn) copyAiPrompt();
+        if (webBtn) toggleAiWebPanel(true);
+      });
+    }
+    if (list && !list.dataset.boundSuggestions) {
+      list.dataset.boundSuggestions = 'true';
+      list.addEventListener('click', event => {
+        const fixBtn = event.target.closest('[data-suggestion-fix]');
+        const viewBtn = event.target.closest('[data-suggestion-view]');
+        const closeBtn = event.target.closest('[data-close-aiweb]');
+        if (fixBtn) applySuggestionFix(fixBtn.dataset.suggestionFix);
+        if (viewBtn) switchView(viewBtn.dataset.suggestionView);
+        if (closeBtn) toggleAiWebPanel(false);
+      });
+    }
+  }
+
+  async function applySuggestionFix(fixId) {
+    if (!requireCloudReady()) return;
+    const trip = activeTrip();
+    if (!trip) return showStatus('Aucun voyage actif.');
+    const result = Suggestions.applyFix(trip, state.settings, fixId);
+    if (!result.changed) return showStatus(result.message || 'Aucune correction nécessaire.');
+    persist(result.message || 'Correction appliquée.');
+  }
+
+  async function autoFixSuggestions() {
+    if (!requireCloudReady()) return;
+    const trip = activeTrip();
+    if (!trip) return showStatus('Aucun voyage actif.');
+    const ok = await confirmAction('Corriger automatiquement ?', 'Le site ajoutera des tâches, postes de budget ou checklists utiles sans supprimer tes données. Les horaires ne seront pas inventés.');
+    if (!ok) return;
+    const result = Suggestions.autoFixTrip(trip, state.settings);
+    if (!result.changed) return showStatus(result.message || 'Aucune correction nécessaire.');
+    persist(result.message || 'Corrections appliquées.');
+  }
+
+  async function copyAiPrompt() {
+    const trip = activeTrip();
+    if (!trip) return showStatus('Aucun voyage actif.');
+    const analysis = Suggestions.analyzeTrip(trip, state.settings);
+    const prompt = analysis.aiPrompt || Suggestions.buildAiPrompt(trip, state.settings, analysis.suggestions, analysis.scores);
+    try {
+      await navigator.clipboard.writeText(prompt);
+      showStatus('Prompt IA copié. Colle-le dans ton assistant préféré.');
+      toggleAiWebPanel(true);
+    } catch (error) {
+      const box = document.getElementById('aiPromptBox');
+      if (box) { box.focus(); box.select(); }
+      showStatus('Copie manuelle : le prompt est affiché dans le panneau IA.');
+      toggleAiWebPanel(true);
+    }
+  }
+
+  function toggleAiWebPanel(forceOpen) {
+    const panel = document.getElementById('aiWebPanel');
+    if (!panel) return;
+    panel.hidden = typeof forceOpen === 'boolean' ? !forceOpen : !panel.hidden;
+    if (!panel.hidden) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   async function optimizeActiveTrip() {
