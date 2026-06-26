@@ -16,9 +16,13 @@
   let appReady = false;
   let cloudLoading = true;
   let currentView = 'dashboard';
+  let communityTripsCache = [];
+  let communityLoading = false;
 
   const titles = {
     dashboard: 'Tableau de bord',
+    today: 'Aujourd’hui',
+    community: 'Communauté',
     trip: 'Créer ou modifier un voyage',
     map: 'Carte du voyage',
     itinerary: 'Feuille de route',
@@ -72,7 +76,6 @@
       if (!requireCloudReady()) return;
       state.activeTripId = event.target.value || null;
       state = Storage.save(state);
-      MapView.resetFilters();
       renderAll();
       scheduleCloudAutosave();
     });
@@ -84,8 +87,10 @@
       scheduleCloudAutosave();
     });
     on('tripForm', 'submit', saveTripForm);
+    on('settingsForm', 'submit', event => { event.preventDefault(); saveSettings(); });
     on('addStepBtn', 'click', () => openStepDialog());
     on('stepForm', 'submit', saveStepForm);
+    on('geocodeBtn', 'click', runStepGeocode);
     on('addExpenseBtn', 'click', () => openExpenseDialog());
     on('expenseForm', 'submit', saveExpenseForm);
     on('fitMapBtn', 'click', MapView.fitBounds);
@@ -94,8 +99,15 @@
     on('addChecklistItemBtn', 'click', addChecklistItem);
     on('saveSettingsBtn', 'click', saveSettings);
     on('deleteCloudDataBtn', 'click', deleteCloudData);
+    on('communityPublishBtn', 'click', openPublishDialog);
+    on('communityRefreshBtn', 'click', () => renderCommunity(true));
+    on('publishForm', 'submit', publishCommunityTrip);
+    ['communitySearchInput', 'communityCountryFilter', 'communityCategoryFilter', 'communitySortFilter'].forEach(id => {
+      const element = document.getElementById(id);
+      if (element) element.addEventListener(id === 'communitySearchInput' ? 'input' : 'change', () => renderCommunity(false));
+    });
     bindCloudActions();
-    window.addEventListener('resize', () => MapView.invalidate());
+    window.addEventListener('resize', () => MapView.fitBounds?.());
     $$('[data-close-dialog]').forEach(button => button.addEventListener('click', () => {
       const dialog = document.getElementById(button.dataset.closeDialog);
       if (dialog?.open) dialog.close('cancel');
@@ -111,10 +123,11 @@
     $$('.nav-item').forEach(item => item.classList.toggle('is-active', item.dataset.viewLink === view));
     $('#pageTitle').textContent = titles[view];
     if (view === 'map') {
-      MapView.initMap();
       renderMap();
-      MapView.invalidate();
+      MapView.fitBounds?.();
     }
+    if (view === 'today') renderToday();
+    if (view === 'community') renderCommunity(false);
     if (view === 'budget') renderBudget();
     if (view === 'suggestions') renderSuggestions();
     if (view === 'itinerary') renderItinerary();
@@ -123,6 +136,8 @@
   function renderAll() {
     renderTripSelector();
     renderDashboard();
+    renderToday();
+    renderCommunity(false);
     renderTripForm();
     renderSteps();
     renderItinerary();
@@ -142,7 +157,7 @@
   function requireCloudReady() {
     if (appReady && CloudSync?.getUser()) return true;
     switchView('dashboard');
-    showStatus('Connecte-toi avec Google pour utiliser le planificateur.');
+    showStatus('Connecte-toi avec Google, e-mail ou invité pour utiliser le planificateur.');
     return false;
   }
 
@@ -188,13 +203,17 @@
       grid.innerHTML = `
         <div class="login-gate">
           <div class="login-gate__icon">☁️</div>
-          <h2>Connexion Google requise</h2>
-          <p>Tes voyages sont maintenant stockés uniquement dans Firebase. Connecte-toi pour charger automatiquement tes données et synchroniser chaque modification.</p>
-          <button class="button button--primary" id="dashboardSignInBtn">Se connecter avec Google</button>
-          <small>Le site n’utilise plus de sauvegarde locale de voyages ni d’export JSON.</small>
+          <h2>Connexion requise</h2>
+          <p>Tes voyages sont synchronisés dans Firebase. Connecte-toi avec Google, e-mail ou en mode invité.</p>
+          <div class="button-row">
+            <button class="button button--primary" id="dashboardSignInBtn">Choisir un mode de connexion</button>
+            <button class="button" id="dashboardGuestBtn">Entrer en invité</button>
+          </div>
+          <small>Google, e-mail ou accès invité anonyme avec sauvegarde Firebase.</small>
         </div>
       `;
-      document.getElementById('dashboardSignInBtn')?.addEventListener('click', handleCloudSignIn);
+      document.getElementById('dashboardSignInBtn')?.addEventListener('click', () => switchView('settings'));
+      document.getElementById('dashboardGuestBtn')?.addEventListener('click', handleAnonymousSignIn);
       return;
     }
 
@@ -246,6 +265,169 @@
     grid.querySelectorAll('[data-delete-trip]').forEach(button => button.addEventListener('click', () => deleteTrip(button.dataset.deleteTrip)));
   }
 
+
+  function renderToday() {
+    const hero = document.getElementById('todayHero');
+    const actions = document.getElementById('todayActions');
+    const timeline = document.getElementById('todayTimeline');
+    if (!hero || !actions || !timeline) return;
+    const trip = activeTrip();
+    if (!trip) {
+      hero.innerHTML = '<p class="eyebrow">Mode voyage</p><h2>Aucun voyage actif</h2><p>Connecte-toi puis crée ou sélectionne un voyage.</p>';
+      actions.innerHTML = '<div class="empty-state">Le mode Aujourd’hui apparaîtra ici.</div>';
+      timeline.innerHTML = '';
+      return;
+    }
+    const steps = U.sortSteps(trip.steps || []);
+    const today = new Date().toISOString().slice(0,10);
+    const next = steps.find(step => !step.arrivalDate || step.arrivalDate >= today) || steps[0];
+    hero.innerHTML = `
+      <p class="eyebrow">Mode voyage</p>
+      <h2>${U.escapeHtml(trip.name)}</h2>
+      <p>${next ? `Prochaine étape : <strong>${U.escapeHtml(next.name)}</strong>` : 'Ajoute des étapes pour préparer ton séjour.'}</p>
+      <div class="stats-grid">
+        <div class="stat-card"><strong>${steps.length}</strong><span>étapes</span></div>
+        <div class="stat-card"><strong>${U.tripDuration(trip)}</strong><span>jour(s)</span></div>
+        <div class="stat-card"><strong>${U.formatMoney(Budget.computeBudget(trip).actualTotal, trip.currency)}</strong><span>réel</span></div>
+        <div class="stat-card"><strong>${trip.status || 'prévu'}</strong><span>statut</span></div>
+      </div>`;
+    actions.innerHTML = `
+      <p class="eyebrow">Actions rapides</p>
+      <h2>Aujourd’hui</h2>
+      <div class="stack">
+        <button class="button button--primary" data-quick-step>+ Étape</button>
+        <button class="button" data-quick-expense>+ Dépense</button>
+        <button class="button" data-view-link="map">Ouvrir la carte</button>
+      </div>`;
+    actions.querySelector('[data-quick-step]')?.addEventListener('click', () => openStepDialog());
+    actions.querySelector('[data-quick-expense]')?.addEventListener('click', () => openExpenseDialog());
+    actions.querySelector('[data-view-link="map"]')?.addEventListener('click', () => switchView('map'));
+    timeline.innerHTML = `<p class="eyebrow">Étapes proches</p><h2>Consultation rapide</h2><div class="timeline">${steps.slice(0, 8).map((step, index) => `<article class="timeline-row"><span class="badge">${index+1}</span><h3>${U.escapeHtml(step.name)}</h3><p>${U.formatDateTime(step.arrivalDate, step.arrivalTime)}${step.address ? ` · ${U.escapeHtml(step.address)}` : ''}</p></article>`).join('') || '<div class="empty-state">Aucune étape.</div>'}</div>`;
+  }
+
+  async function renderCommunity(force = false) {
+    const grid = document.getElementById('communityGrid');
+    const adminPanel = document.getElementById('communityAdminPanel');
+    if (!grid) return;
+    if (!CloudSync?.isConfigured()) {
+      grid.innerHTML = '<div class="empty-state">Firebase doit être configuré pour afficher la communauté.</div>';
+      return;
+    }
+    if ((force || !communityTripsCache.length) && !communityLoading) {
+      communityLoading = true;
+      grid.innerHTML = '<div class="empty-state">Chargement de la communauté…</div>';
+      try {
+        communityTripsCache = await CloudSync.listCommunityTrips();
+      } catch (error) {
+        console.error(error);
+        grid.innerHTML = `<div class="empty-state">${U.escapeHtml(error.message || 'Impossible de charger la communauté.')}</div>`;
+      } finally {
+        communityLoading = false;
+      }
+    }
+    const query = (document.getElementById('communitySearchInput')?.value || '').toLowerCase();
+    const country = document.getElementById('communityCountryFilter')?.value || '';
+    const category = document.getElementById('communityCategoryFilter')?.value || '';
+    const sort = document.getElementById('communitySortFilter')?.value || 'trend';
+    let trips = [...communityTripsCache];
+    const countries = [...new Set(trips.map(item => item.country).filter(Boolean))].sort();
+    const countryFilter = document.getElementById('communityCountryFilter');
+    if (countryFilter && countryFilter.options.length <= 1) {
+      countryFilter.innerHTML = '<option value="">Tous les pays</option>' + countries.map(item => `<option value="${U.escapeHtml(item)}">${U.escapeHtml(item)}</option>`).join('');
+      countryFilter.value = country;
+    }
+    if (query) trips = trips.filter(item => [item.title, item.country, item.category, item.description].join(' ').toLowerCase().includes(query));
+    if (country) trips = trips.filter(item => item.country === country);
+    if (category) trips = trips.filter(item => item.category === category);
+    trips.sort((a,b) => sort === 'recent' ? String(b.createdAt?.seconds || '').localeCompare(String(a.createdAt?.seconds || '')) : (Number(b.score||0)-Number(a.score||0)));
+    if (adminPanel) {
+      adminPanel.hidden = !CloudSync.isAdmin?.();
+      adminPanel.innerHTML = CloudSync.isAdmin?.() ? '<p class="eyebrow">Admin</p><h2>Gestion communautaire</h2><p>Compte admin : Lucas S. Tu peux retirer les publications si nécessaire.</p>' : '';
+    }
+    if (!trips.length) {
+      grid.innerHTML = '<div class="empty-state">Aucun voyage communautaire pour ces filtres.</div>';
+      return;
+    }
+    grid.innerHTML = trips.map(item => `
+      <article class="trip-card">
+        <div class="trip-cover" style="${item.coverImage ? `background-image:url('${U.escapeHtml(item.coverImage)}')` : ''}"></div>
+        <div class="trip-body">
+          <div class="trip-meta"><span class="badge">${U.escapeHtml(item.category || 'voyage')}</span><span class="badge success">▲ ${Number(item.score||0)}</span></div>
+          <h3>${U.escapeHtml(item.title || 'Voyage partagé')}</h3>
+          <p>${U.escapeHtml(item.description || item.country || 'Itinéraire partagé par la communauté.')}</p>
+          <div class="button-row">
+            <button class="button" data-vote-community="${item.id}" data-vote="1">+ Tendance</button>
+            <button class="button" data-vote-community="${item.id}" data-vote="-1">-</button>
+            ${item.allowCopy !== false ? `<button class="button button--primary" data-copy-community="${item.id}">Copier</button>` : ''}
+            ${(CloudSync.isAdmin?.() || item.ownerUid === CloudSync.getUser()?.uid) ? `<button class="button button--danger" data-delete-community="${item.id}">Retirer</button>` : ''}
+          </div>
+        </div>
+      </article>`).join('');
+    grid.querySelectorAll('[data-vote-community]').forEach(btn => btn.addEventListener('click', async () => {
+      try { await CloudSync.voteCommunityTrip(btn.dataset.voteCommunity, Number(btn.dataset.vote)); await renderCommunity(true); } catch (error) { showStatus(error.message || 'Vote impossible.'); }
+    }));
+    grid.querySelectorAll('[data-copy-community]').forEach(btn => btn.addEventListener('click', () => copyCommunityTrip(btn.dataset.copyCommunity)));
+    grid.querySelectorAll('[data-delete-community]').forEach(btn => btn.addEventListener('click', () => deleteCommunityTrip(btn.dataset.deleteCommunity)));
+  }
+
+  function openPublishDialog() {
+    if (!requireCloudReady()) return;
+    const trip = activeTrip();
+    if (!trip) { showStatus('Sélectionne un voyage avant de le publier.'); return; }
+    const form = document.getElementById('publishForm');
+    if (form) {
+      form.reset();
+      form.elements.title.value = trip.name || '';
+      form.elements.country.value = trip.area || '';
+      form.elements.coverImage.value = trip.coverImage || '';
+      form.elements.description.value = trip.description || '';
+    }
+    document.getElementById('publishDialog')?.showModal();
+  }
+
+  async function publishCommunityTrip(event) {
+    event.preventDefault();
+    if (!requireCloudReady()) return;
+    const trip = activeTrip();
+    const form = event.currentTarget;
+    if (!trip || !form) return;
+    try {
+      const data = Object.fromEntries(new FormData(form).entries());
+      data.hideBudget = Boolean(form.elements.hideBudget?.checked);
+      data.allowCopy = Boolean(form.elements.allowCopy?.checked);
+      await CloudSync.publishCommunityTrip(trip, data);
+      document.getElementById('publishDialog')?.close();
+      await renderCommunity(true);
+      showStatus('Voyage publié dans la communauté.');
+    } catch (error) {
+      console.error(error);
+      showStatus(error.message || 'Publication impossible.');
+    }
+  }
+
+  function copyCommunityTrip(id) {
+    if (!requireCloudReady()) return;
+    const item = communityTripsCache.find(entry => entry.id === id);
+    if (!item?.trip) return;
+    const copy = Storage.normalizeTrip({ ...U.clone(item.trip), id: U.uid('trip'), name: `${item.trip.name || item.title} — copie`, status: 'brouillon' });
+    state = Storage.upsertTrip(state, copy);
+    renderAll();
+    scheduleCloudAutosave();
+    showStatus('Voyage copié dans ton espace.');
+  }
+
+  async function deleteCommunityTrip(id) {
+    const ok = await confirmAction('Retirer cette publication ?', 'Elle ne sera plus visible dans la communauté.');
+    if (!ok) return;
+    try {
+      await CloudSync.deleteCommunityTrip(id);
+      await renderCommunity(true);
+      showStatus('Publication retirée.');
+    } catch (error) {
+      showStatus(error.message || 'Suppression impossible.');
+    }
+  }
+
   function renderTripForm() {
     const form = $('#tripForm');
     const trip = activeTrip();
@@ -254,7 +436,7 @@
       form.reset();
       return;
     }
-    const fields = ['name', 'description', 'area', 'startDate', 'endDate', 'travellers', 'maxBudget', 'currency', 'status', 'style', 'pace', 'interests'];
+    const fields = ['name', 'description', 'area', 'coverImage', 'startDate', 'endDate', 'travellers', 'travellersNames', 'maxBudget', 'currency', 'status', 'style', 'pace', 'interests'];
     fields.forEach(field => { if (form.elements[field]) form.elements[field].value = trip[field] ?? ''; });
   }
 
@@ -264,7 +446,8 @@
     let trip = activeTrip();
     if (!trip) trip = Storage.normalizeTrip({});
     const data = new FormData(event.currentTarget);
-    ['name', 'description', 'area', 'startDate', 'endDate', 'currency', 'status', 'style', 'pace', 'interests'].forEach(key => { trip[key] = String(data.get(key) || ''); });
+    ['name', 'description', 'area', 'coverImage', 'startDate', 'endDate', 'currency', 'status', 'style', 'pace', 'interests'].forEach(key => { trip[key] = String(data.get(key) || ''); });
+    trip.travellersNames = U.normalizeNameList(data.get('travellersNames') || '');
     trip.travellers = Math.max(1, Number(data.get('travellers')) || 1);
     trip.maxBudget = Number(data.get('maxBudget')) || 0;
     trip.updatedAt = new Date().toISOString();
@@ -328,7 +511,7 @@
   async function deleteTrip(id) {
     if (!requireCloudReady()) return;
     const trip = state.trips.find(item => item.id === id);
-    const ok = await confirmAction('Supprimer ce voyage ?', `“${trip?.name || 'Voyage'}” sera supprimé de Firebase pour ton compte Google.`);
+    const ok = await confirmAction('Supprimer ce voyage ?', `“${trip?.name || 'Voyage'}” sera supprimé de Firebase pour ton compte.`);
     if (!ok) return;
     state = Storage.deleteTrip(state, id);
     renderAll();
@@ -370,6 +553,54 @@
     list.querySelectorAll('[data-move-step]').forEach(button => button.addEventListener('click', () => moveStep(button.dataset.stepId, button.dataset.moveStep)));
   }
 
+
+  async function runStepGeocode() {
+    const form = document.getElementById('stepForm');
+    const box = document.getElementById('geocodeResults');
+    const query = form?.elements.search?.value || '';
+    if (!form || !box) return;
+    if (!window.TravelGeocoder) {
+      box.innerHTML = '<div class="empty-state">Recherche de lieu indisponible.</div>';
+      return;
+    }
+    if (query.trim().length < 3) {
+      box.innerHTML = '<div class="empty-state">Indique au moins 3 caractères.</div>';
+      return;
+    }
+    box.hidden = false;
+    box.innerHTML = '<div class="empty-state">Recherche…</div>';
+    try {
+      const results = await window.TravelGeocoder.search(query, { limit: 6 });
+      if (!results.length) {
+        box.innerHTML = '<div class="empty-state">Aucun lieu trouvé.</div>';
+        return;
+      }
+      box.innerHTML = results.map((item, index) => `
+        <button type="button" class="place-result" data-geo-index="${index}">
+          <strong>${U.escapeHtml(item.name)}</strong>
+          <small>${U.escapeHtml(item.address || item.displayName || '')}</small>
+          <span>${U.escapeHtml(item.type)} · ${item.lat.toFixed(5)}, ${item.lng.toFixed(5)}</span>
+        </button>
+      `).join('');
+      box.querySelectorAll('[data-geo-index]').forEach(button => {
+        button.addEventListener('click', () => {
+          const item = results[Number(button.dataset.geoIndex)];
+          if (!item) return;
+          form.elements.name.value = item.name || '';
+          form.elements.address.value = item.address || item.displayName || '';
+          form.elements.lat.value = item.lat;
+          form.elements.lng.value = item.lng;
+          if ([...form.elements.type.options].some(opt => opt.value === item.type)) form.elements.type.value = item.type;
+          box.innerHTML = '';
+          box.hidden = true;
+          showStatus('Lieu ajouté au formulaire.');
+        });
+      });
+    } catch (error) {
+      box.innerHTML = `<div class="empty-state">${U.escapeHtml(error.message || 'Recherche impossible.')}</div>`;
+    }
+  }
+
   function openStepDialog(stepId = null) {
     const trip = activeTrip();
     if (!trip) return showStatus('Crée d’abord un voyage.');
@@ -380,10 +611,13 @@
     form.elements.id.value = step?.id || '';
     form.elements.name.value = step?.name || '';
     form.elements.type.value = step?.type || 'ville';
+    form.elements.address.value = step?.address || '';
     form.elements.lat.value = step?.lat ?? '';
     form.elements.lng.value = step?.lng ?? '';
     form.elements.arrivalDate.value = step?.arrivalDate || '';
+    form.elements.arrivalTime.value = step?.arrivalTime || '';
     form.elements.departureDate.value = step?.departureDate || '';
+    form.elements.departureTime.value = step?.departureTime || '';
     form.elements.duration.value = step?.duration || '';
     form.elements.cost.value = step?.cost || '';
     form.elements.priority.value = step?.priority || 'optionnel';
@@ -410,13 +644,16 @@
       type: String(data.get('type') || 'ville'),
       lat: data.get('lat') === '' ? '' : Number(data.get('lat')),
       lng: data.get('lng') === '' ? '' : Number(data.get('lng')),
+      address: String(data.get('address') || ''),
       arrivalDate: String(data.get('arrivalDate') || ''),
+      arrivalTime: String(data.get('arrivalTime') || ''),
       departureDate: String(data.get('departureDate') || ''),
+      departureTime: String(data.get('departureTime') || ''),
       duration: String(data.get('duration') || ''),
       cost: Number(data.get('cost')) || 0,
       priority: String(data.get('priority') || 'optionnel'),
       color: String(data.get('color') || '#2563eb'),
-      links: U.linksToArray(data.get('links')),
+      links: U.normalizeNameList(data.get('links') || ''),
       notes: String(data.get('notes') || ''),
       transportToNext: existing?.transportToNext || 'car',
       segmentCost: existing?.segmentCost || 0,
@@ -461,25 +698,40 @@
 
   function renderItinerary() {
     const trip = activeTrip();
-    Itinerary.renderSummary($('#itinerarySummary'), trip, state.settings);
-    Itinerary.renderItinerary($('#itineraryList'), trip, state.settings, (stepId, field, value) => {
-      const current = activeTrip();
-      const step = current?.steps.find(item => item.id === stepId);
-      if (!step) return;
-      step[field] = field === 'segmentCost' ? Number(value) || 0 : value;
-      persist('Segment mis à jour.');
+    Itinerary.renderDayPlanner(document.getElementById('itineraryTimeline'), trip, state.settings, {
+      addStep: date => openStepDialogForDate(date),
+      editStep: id => openStepDialog(id),
+      moveStep: (id, direction) => moveStep(id, direction)
     });
+  }
+
+  function openStepDialogForDate(date) {
+    openStepDialog();
+    const form = document.getElementById('stepForm');
+    if (form && date) {
+      form.elements.arrivalDate.value = date;
+      form.elements.departureDate.value = date;
+    }
   }
 
   function renderBudget() {
     const trip = activeTrip();
-    Budget.renderStats($('#budgetStats'), trip);
-    Budget.renderBreakdown($('#budgetBreakdown'), trip);
-    Budget.drawChart($('#budgetChart'), trip);
-    Budget.renderExpenses($('#expensesList'), trip, { edit: openExpenseDialog, delete: deleteExpense });
+    const summary = document.getElementById('budgetSummary');
+    const list = document.getElementById('expensesList');
+    const settlements = document.getElementById('settlementsBox');
+    if (!trip) {
+      if (summary) summary.innerHTML = '<div class="empty-state">Sélectionne un voyage.</div>';
+      if (list) list.innerHTML = '';
+      if (settlements) settlements.innerHTML = '';
+      return;
+    }
+    Budget.renderStats(summary, trip);
+    Budget.renderExpenses(list, trip, { edit: openExpenseDialog, delete: deleteExpense });
+    if (settlements && Budget.renderPeople) Budget.renderPeople(settlements, trip);
   }
 
   function openExpenseDialog(expenseId = null) {
+    if (!requireCloudReady()) return;
     const trip = activeTrip();
     if (!trip) return showStatus('Crée d’abord un voyage.');
     const form = $('#expenseForm');
@@ -490,8 +742,11 @@
     form.elements.id.value = expense?.id || '';
     form.elements.label.value = expense?.label || '';
     form.elements.category.value = expense?.category || 'autres';
-    form.elements.amount.value = expense?.amount || '';
+    form.elements.planned.value = expense?.planned ?? expense?.amount ?? '';
+    form.elements.actual.value = expense?.actual ?? '';
     form.elements.status.value = expense?.status || 'prévue';
+    form.elements.paidBy.value = expense?.paidBy || '';
+    form.elements.sharedWith.value = Array.isArray(expense?.sharedWith) ? expense.sharedWith.join(', ') : (expense?.sharedWith || '');
     form.elements.date.value = expense?.date || '';
     form.elements.stepId.value = expense?.stepId || '';
     form.elements.note.value = expense?.note || '';
@@ -505,16 +760,19 @@
     if (!trip) return;
     const data = new FormData(event.currentTarget);
     const id = data.get('id') || U.uid('expense');
-    const expense = {
+    const expense = Storage.normalizeExpense({
       id,
       label: String(data.get('label') || 'Dépense'),
       category: String(data.get('category') || 'autres'),
-      amount: Number(data.get('amount')) || 0,
+      planned: Number(data.get('planned')) || 0,
+      actual: Number(data.get('actual')) || 0,
       status: String(data.get('status') || 'prévue'),
+      paidBy: String(data.get('paidBy') || ''),
+      sharedWith: U.normalizeNameList(data.get('sharedWith') || ''),
       date: String(data.get('date') || ''),
       stepId: String(data.get('stepId') || ''),
       note: String(data.get('note') || '')
-    };
+    });
     const index = trip.expenses.findIndex(item => item.id === id);
     if (index >= 0) trip.expenses[index] = expense;
     else trip.expenses.push(expense);
@@ -532,7 +790,7 @@
   }
 
   function renderSuggestions() {
-    Suggestions.render($('#scorePanel'), $('#suggestionsList'), activeTrip(), state.settings);
+    Suggestions.render($('#suggestionsScore'), $('#suggestionsList'), activeTrip(), state.settings);
   }
 
   async function optimizeActiveTrip() {
@@ -559,31 +817,48 @@
       return;
     }
     trip.checklists ||= U.createDefaultChecklists();
-    container.innerHTML = Object.entries(trip.checklists).map(([category, items]) => `
-      <article class="checklist">
-        <h3>${U.escapeHtml(category)}</h3>
-        ${(items || []).map(item => `
-          <label>
-            <input type="checkbox" data-check-category="${U.escapeHtml(category)}" data-check-id="${item.id}" ${item.done ? 'checked' : ''} />
-            <span contenteditable="true" data-check-text="${item.id}" data-check-category="${U.escapeHtml(category)}">${U.escapeHtml(item.text)}</span>
-          </label>
+    if (!Array.isArray(trip.checklists)) {
+      trip.checklists = Object.entries(trip.checklists).map(([title, items]) => ({ id: U.uid('list'), title, items: Array.isArray(items) ? items : [] }));
+    }
+    container.innerHTML = trip.checklists.map(list => `
+      <article class="checklist-card">
+        <h3><span contenteditable="true" data-list-title="${list.id}">${U.escapeHtml(list.title)}</span><small>${(list.items || []).filter(item => item.done).length}/${(list.items || []).length}</small></h3>
+        ${(list.items || []).map(item => `
+          <div class="todo-row">
+            <input type="checkbox" data-check-list="${list.id}" data-check-id="${item.id}" ${item.done ? 'checked' : ''} />
+            <input class="input" type="text" data-check-text="${item.id}" data-check-list="${list.id}" value="${U.escapeHtml(item.text)}" />
+            <button class="button" data-delete-todo="${item.id}" data-check-list="${list.id}" type="button">×</button>
+          </div>
         `).join('')}
+        <button class="button" data-add-todo="${list.id}" type="button">+ Tâche</button>
       </article>
-    `).join('');
-    container.querySelectorAll('[data-check-id]').forEach(input => input.addEventListener('change', () => {
-      const list = trip.checklists[input.dataset.checkCategory] || [];
-      const item = list.find(entry => entry.id === input.dataset.checkId);
-      if (item) item.done = input.checked;
-      state = Storage.save(state);
-      renderSuggestions();
-      scheduleCloudAutosave();
+    `).join('') || '<div class="empty-state">Aucune checklist.</div>';
+    container.querySelectorAll('[data-list-title]').forEach(el => el.addEventListener('blur', () => {
+      const list = trip.checklists.find(item => item.id === el.dataset.listTitle);
+      if (list) list.title = el.textContent.trim() || list.title;
+      persist('Checklist mise à jour.');
     }));
-    container.querySelectorAll('[data-check-text]').forEach(span => span.addEventListener('blur', () => {
-      const list = trip.checklists[span.dataset.checkCategory] || [];
-      const item = list.find(entry => entry.id === span.dataset.checkText);
-      if (item) item.text = span.textContent.trim() || item.text;
-      state = Storage.save(state);
-      scheduleCloudAutosave();
+    container.querySelectorAll('[data-check-id]').forEach(input => input.addEventListener('change', () => {
+      const list = trip.checklists.find(item => item.id === input.dataset.checkList);
+      const item = list?.items?.find(entry => entry.id === input.dataset.checkId);
+      if (item) item.done = input.checked;
+      persist('Checklist mise à jour.');
+    }));
+    container.querySelectorAll('[data-check-text]').forEach(input => input.addEventListener('change', () => {
+      const list = trip.checklists.find(item => item.id === input.dataset.checkList);
+      const item = list?.items?.find(entry => entry.id === input.dataset.checkText);
+      if (item) item.text = input.value.trim() || item.text;
+      persist('Checklist mise à jour.');
+    }));
+    container.querySelectorAll('[data-add-todo]').forEach(button => button.addEventListener('click', () => {
+      const list = trip.checklists.find(item => item.id === button.dataset.addTodo);
+      if (list) list.items.push({ id: U.uid('todo'), text: 'Nouvelle tâche', done: false });
+      persist('Tâche ajoutée.');
+    }));
+    container.querySelectorAll('[data-delete-todo]').forEach(button => button.addEventListener('click', () => {
+      const list = trip.checklists.find(item => item.id === button.dataset.checkList);
+      if (list) list.items = list.items.filter(item => item.id !== button.dataset.deleteTodo);
+      persist('Tâche supprimée.');
     }));
   }
 
@@ -591,14 +866,9 @@
     if (!requireCloudReady()) return;
     const trip = activeTrip();
     if (!trip) return showStatus('Sélectionne un voyage.');
-    const category = prompt('Dans quelle liste ajouter cet élément ?', 'avant départ');
-    if (!category) return;
-    const text = prompt('Élément à ajouter ?', '');
-    if (!text) return;
     trip.checklists ||= U.createDefaultChecklists();
-    trip.checklists[category] ||= [];
-    trip.checklists[category].push({ id: U.uid('todo'), text, done: false });
-    persist('Élément ajouté.');
+    trip.checklists.push({ id: U.uid('list'), title: 'Nouvelle liste', items: [{ id: U.uid('todo'), text: 'Nouvelle tâche', done: false }] });
+    persist('Bloc ajouté.');
   }
 
   function renderJournal() {
@@ -637,19 +907,24 @@
   }
 
   function renderSettings() {
-    $$('#settingsPanel [data-setting]').forEach(input => {
-      const [group, key] = input.dataset.setting.split('.');
-      input.value = state.settings?.[group]?.[key] ?? '';
-    });
+    const form = document.getElementById('settingsForm');
+    if (!form) return;
+    form.elements.autosaveMinutes.value = state.settings?.autosaveMinutes ?? 3;
+    form.elements.carSpeed.value = state.settings?.speeds?.car ?? 90;
+    form.elements.trainSpeed.value = state.settings?.speeds?.train ?? 120;
+    form.elements.walkSpeed.value = state.settings?.speeds?.walk ?? 4.5;
   }
 
   function saveSettings() {
     if (!requireCloudReady()) return;
-    $$('#settingsPanel [data-setting]').forEach(input => {
-      const [group, key] = input.dataset.setting.split('.');
-      state.settings[group] ||= {};
-      state.settings[group][key] = Number(input.value) || 0;
-    });
+    const form = document.getElementById('settingsForm');
+    if (!form) return;
+    state.settings ||= U.clone(U.defaultSettings);
+    state.settings.speeds ||= {};
+    state.settings.autosaveMinutes = U.toNumber(form.elements.autosaveMinutes.value, 3);
+    state.settings.speeds.car = U.toNumber(form.elements.carSpeed.value, 90);
+    state.settings.speeds.train = U.toNumber(form.elements.trainSpeed.value, 120);
+    state.settings.speeds.walk = U.toNumber(form.elements.walkSpeed.value, 4.5);
     state = Storage.save(state);
     renderAll();
     scheduleCloudAutosave();
@@ -658,9 +933,16 @@
 
   function renderMap() {
     const trip = activeTrip();
-    MapView.renderFilters($('#mapFilters'), trip, () => renderMap());
-    MapView.renderMapSteps($('#mapStepsList'), trip);
     MapView.updateMap(trip, state.settings);
+    MapView.renderSegments(document.getElementById('mapSegments'), trip, state.settings, (stepId, field, value) => {
+      if (!trip) return;
+      const step = trip.steps.find(item => item.id === stepId);
+      if (!step) return;
+      step[field] = field === 'segmentCost' ? U.toNumber(value, 0) : value;
+      state = Storage.save(state);
+      renderMap();
+      scheduleCloudAutosave();
+    });
   }
 
   function bindCloudActions() {
@@ -671,7 +953,12 @@
     };
     bind('cloudAuthBtn', handleCloudAuth);
     bind('cloudSignInBtn', handleCloudSignIn);
+    bind('cloudAnonymousSignInBtn', handleAnonymousSignIn);
+    bind('cloudEmailRegisterBtn', handleEmailRegister);
+    bind('cloudEmailResetBtn', handlePasswordReset);
     bind('cloudSignOutBtn', handleCloudSignOut);
+    const emailForm = document.getElementById('emailLoginForm');
+    if (emailForm) emailForm.addEventListener('submit', handleEmailSignIn);
   }
 
   async function initCloudSync() {
@@ -754,30 +1041,64 @@
     const user = payload.user ?? CloudSync.getUser();
     const configured = payload.configured ?? CloudSync.isConfigured();
     const status = payload.status || CloudSync.getStatus();
+    const provider = payload.provider || CloudSync.getProviderLabel?.() || '';
     const statusEl = document.getElementById('cloudStatus');
+    const welcomeCard = document.getElementById('authWelcomeCard');
     const profile = document.getElementById('cloudProfile');
     const avatar = document.getElementById('cloudAvatar');
     const name = document.getElementById('cloudUserName');
     const email = document.getElementById('cloudUserEmail');
+    const providerEl = document.getElementById('cloudProvider');
     const topButton = document.getElementById('cloudAuthBtn');
     const signInBtn = document.getElementById('cloudSignInBtn');
     const signOutBtn = document.getElementById('cloudSignOutBtn');
+    const emailForm = document.getElementById('emailLoginForm');
+    const emailInputs = ['emailAuthEmail', 'emailAuthPassword', 'cloudEmailRegisterBtn', 'cloudEmailResetBtn', 'cloudAnonymousSignInBtn'];
     const deleteCloudBtn = document.getElementById('deleteCloudDataBtn');
     const syncMeta = document.getElementById('cloudSyncMeta');
     const protectedControls = ['newTripBtn', 'createFirstTripBtn', 'loadDemoBtn', 'tripSelector', 'saveSettingsBtn'];
 
     document.body.classList.toggle('is-cloud-locked', !appReady || !user);
 
-    if (statusEl) statusEl.textContent = status || (configured ? 'Connexion Google requise.' : 'Firebase non configuré.');
+    if (welcomeCard) welcomeCard.hidden = Boolean(user);
+    if (statusEl) {
+      const cleanStatus = status || (configured ? '' : 'Firebase non configuré.');
+      const showStatusLine = !configured || Boolean(user) || /erreur|impossible|permission|firebase|sauvegarde|charg/i.test(cleanStatus);
+      statusEl.textContent = cleanStatus;
+      statusEl.hidden = !cleanStatus || !showStatusLine;
+    }
     if (profile) profile.hidden = !user;
-    if (avatar && user) avatar.src = user.photoURL || '';
-    if (name && user) name.textContent = user.displayName || 'Compte Google';
-    if (email && user) email.textContent = user.email || '';
-    if (topButton) topButton.textContent = user ? '☁️ Connecté' : '☁️ Connexion Google';
+    if (avatar) {
+      if (user?.photoURL) {
+        avatar.innerHTML = `<img src="${U.escapeHtml(user.photoURL)}" alt="" />`;
+      } else {
+        avatar.textContent = user?.isAnonymous ? 'I' : (user?.email || user?.displayName || 'U').slice(0, 1).toUpperCase();
+      }
+    }
+    if (name && user) name.textContent = user.isAnonymous ? 'Compte invité' : (user.displayName || user.email?.split('@')[0] || 'Compte utilisateur');
+    if (email && user) email.textContent = user.isAnonymous ? 'Connexion anonyme Firebase' : (user.email || '');
+    if (providerEl) providerEl.textContent = user ? `Connexion : ${provider || 'Firebase'}` : 'Google, e-mail ou invité';
+
+    if (topButton) {
+      topButton.classList.toggle('is-connected', Boolean(user));
+      if (user) {
+        const label = user.isAnonymous ? 'Invité' : (user.displayName || user.email?.split('@')[0] || 'Connecté');
+        const picture = user.photoURL ? `<img src="${U.escapeHtml(user.photoURL)}" alt="" />` : U.escapeHtml(label.slice(0, 1).toUpperCase());
+        topButton.innerHTML = `<span class="auth-avatar">${picture}</span><span class="auth-copy"><strong>Connecté</strong><small>${U.escapeHtml(label)}</small></span>`;
+      } else {
+        topButton.innerHTML = '<span class="auth-avatar">↗</span><span class="auth-copy"><strong>Se connecter</strong><small>Choisir un accès</small></span>';
+      }
+    }
+
     if (signInBtn) {
       signInBtn.disabled = !configured || Boolean(user);
-      signInBtn.textContent = user ? 'Connecté avec Google' : 'Se connecter avec Google';
+      signInBtn.innerHTML = user ? 'Connecté' : '<span class="google-dot">G</span> Continuer avec Google';
     }
+    if (emailForm) emailForm.classList.toggle('is-disabled', Boolean(user));
+    emailInputs.forEach(id => {
+      const element = document.getElementById(id);
+      if (element) element.disabled = !configured || Boolean(user);
+    });
     if (signOutBtn) signOutBtn.disabled = !user;
     if (deleteCloudBtn) deleteCloudBtn.disabled = !user || !appReady;
     if (syncMeta) syncMeta.textContent = cloudLastSavedAt ? `Dernière sauvegarde : ${U.formatDate(cloudLastSavedAt)} ${new Date(cloudLastSavedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : 'Sauvegarde Firebase automatique active après connexion.';
@@ -794,11 +1115,8 @@
       showStatus('Firebase doit être renseigné dans js/firebase-config.js.');
       return;
     }
-    if (CloudSync.getUser()) {
-      switchView('settings');
-      return;
-    }
-    await handleCloudSignIn();
+    switchView('settings');
+    showStatus(CloudSync.getUser() ? 'Compte connecté.' : 'Choisis ton mode de connexion.');
   }
 
   async function handleCloudSignIn() {
@@ -816,8 +1134,85 @@
     }
   }
 
+
+  async function handleAnonymousSignIn() {
+    try {
+      cloudLoading = true;
+      renderAll();
+      await CloudSync.signInAnonymously();
+      updateCloudUi();
+    } catch (error) {
+      console.error(error);
+      cloudLoading = false;
+      showStatus(error.message || 'Connexion invitée impossible. Vérifie que le fournisseur Anonyme est activé dans Firebase.');
+      updateCloudUi({ status: error.message });
+      renderAll();
+    }
+  }
+
+  async function handleEmailSignIn(event) {
+    event?.preventDefault?.();
+    try {
+      const email = document.getElementById('emailAuthEmail')?.value || '';
+      const password = document.getElementById('emailAuthPassword')?.value || '';
+      if (!email || !password) {
+        showStatus('Indique ton e-mail et ton mot de passe.');
+        return;
+      }
+      cloudLoading = true;
+      renderAll();
+      await CloudSync.signInWithEmail(email, password);
+      updateCloudUi();
+    } catch (error) {
+      console.error(error);
+      cloudLoading = false;
+      showStatus(error.message || 'Connexion e-mail impossible.');
+      updateCloudUi({ status: error.message });
+      renderAll();
+    }
+  }
+
+  async function handleEmailRegister() {
+    try {
+      const email = document.getElementById('emailAuthEmail')?.value || '';
+      const password = document.getElementById('emailAuthPassword')?.value || '';
+      if (!email || !password) {
+        showStatus('Indique un e-mail et un mot de passe pour créer le compte.');
+        return;
+      }
+      cloudLoading = true;
+      renderAll();
+      await CloudSync.registerWithEmail(email, password);
+      updateCloudUi();
+    } catch (error) {
+      console.error(error);
+      cloudLoading = false;
+      showStatus(error.message || 'Création du compte impossible.');
+      updateCloudUi({ status: error.message });
+      renderAll();
+    }
+  }
+
+  async function handlePasswordReset() {
+    try {
+      const email = document.getElementById('emailAuthEmail')?.value || '';
+      if (!email) {
+        showStatus('Indique ton adresse e-mail avant de demander la réinitialisation.');
+        return;
+      }
+      await CloudSync.resetPassword(email);
+      updateCloudUi({ status: 'E-mail de réinitialisation envoyé.' });
+      showStatus('E-mail de réinitialisation envoyé.');
+    } catch (error) {
+      console.error(error);
+      showStatus(error.message || 'Réinitialisation impossible.');
+      updateCloudUi({ status: error.message });
+    }
+  }
+
+
   async function handleCloudSignOut() {
-    const ok = await confirmAction('Se déconnecter ?', 'Les voyages seront retirés de cette session. Ils resteront dans Firebase pour ce compte Google.');
+    const ok = await confirmAction('Se déconnecter ?', 'Les voyages seront retirés de cette session. Ils resteront dans Firebase pour ce compte.');
     if (!ok) return;
     try {
       await flushCloudAutosave();
@@ -826,7 +1221,7 @@
       appReady = false;
       loadedCloudUid = null;
       renderAll();
-      showStatus('Déconnexion Google effectuée.');
+      showStatus('Déconnexion effectuée.');
     } catch (error) {
       showStatus(error.message || 'Déconnexion impossible.');
     }
@@ -862,7 +1257,7 @@
 
   async function deleteCloudData() {
     if (!requireCloudReady()) return;
-    const ok = await confirmAction('Supprimer toutes les données Firebase ?', 'Tous les voyages de ce compte Google seront supprimés de Firestore. Cette action est définitive.');
+    const ok = await confirmAction('Supprimer toutes les données Firebase ?', 'Tous les voyages de ce compte seront supprimés de Firestore. Cette action est définitive.');
     if (!ok) return;
     try {
       await CloudSync.deleteState();

@@ -11,11 +11,14 @@
   }
 
   function expensePlanned(expense) {
-    return toNumber(expense?.plannedAmount ?? expense?.amount);
+    return toNumber(expense?.plannedAmount ?? expense?.planned ?? expense?.amount);
   }
 
   function expenseActual(expense) {
-    if (expense?.actualAmount === '' || expense?.actualAmount == null) return 0;
+    if (expense?.actualAmount === '' || expense?.actualAmount == null) {
+      if (expense?.actual === '' || expense?.actual == null) return 0;
+      return toNumber(expense.actual);
+    }
     return toNumber(expense.actualAmount);
   }
 
@@ -63,7 +66,7 @@
     const balances = Object.fromEntries(names.map(name => [name, { paid: 0, share: 0, balance: 0 }]));
     expenses.forEach(expense => {
       const amount = expenseEffective(expense);
-      const participants = Array.isArray(expense.splitBetween) && expense.splitBetween.length ? expense.splitBetween : names;
+      const participants = Array.isArray(expense.splitBetween) && expense.splitBetween.length ? expense.splitBetween : (Array.isArray(expense.sharedWith) && expense.sharedWith.length ? expense.sharedWith : names);
       const validParticipants = participants.filter(name => balances[name]);
       const share = validParticipants.length ? amount / validParticipants.length : amount / travellers;
       validParticipants.forEach(name => { balances[name].share += share; });
@@ -238,7 +241,7 @@
               <span class="badge">${escapeHtml(expense.category)}</span>
               <h3>${escapeHtml(expense.label)}</h3>
               <p>Prévu : ${formatMoney(planned, currency)} · Réel : ${actual ? formatMoney(actual, currency) : '—'} · ${escapeHtml(expense.status)}${expense.date ? ` · ${formatDate(expense.date)}` : ''}${expense.stepId ? ` · ${escapeHtml(stepsById.get(expense.stepId) || 'étape')}` : ''}</p>
-              ${expense.paidBy ? `<p>Payé par ${escapeHtml(expense.paidBy)}${expense.splitBetween?.length ? ` · partagé avec ${expense.splitBetween.map(escapeHtml).join(', ')}` : ''}</p>` : ''}
+              ${expense.paidBy ? `<p>Payé par ${escapeHtml(expense.paidBy)}${(expense.splitBetween?.length || expense.sharedWith?.length) ? ` · partagé avec ${(expense.splitBetween?.length ? expense.splitBetween : expense.sharedWith).map(escapeHtml).join(', ')}` : ''}</p>` : ''}
               ${expense.note ? `<p>${escapeHtml(expense.note)}</p>` : ''}
             </div>
             <div class="row-actions">
