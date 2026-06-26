@@ -1,21 +1,12 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
-    function isOwner(userId) { return signedIn() && request.auth.uid == userId; }
+    function owner(userId) { return signedIn() && request.auth.uid == userId; }
     function isAdmin() { return signedIn() && request.auth.token.email == 'lucas.scribe01@gmail.com'; }
 
     match /travelPlannerUsers/{userId} {
-      allow read, write, delete: if isOwner(userId);
-    }
-
-    match /sharedTrips/{shareId} {
-      allow read: if resource.data.visibility == 'public'
-        || (signedIn() && (resource.data.ownerUid == request.auth.uid
-        || request.auth.token.email in resource.data.allowedEmails));
-      allow create: if signedIn();
-      allow update, delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+      allow read, create, update, delete: if owner(userId);
     }
 
     match /communityTrips/{tripId} {

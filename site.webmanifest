@@ -1,1 +1,20 @@
-{"name":"Travel Planner","short_name":"Travel Planner","icons":[{"src":"assets/icons/icon-192.png","sizes":"192x192","type":"image/png"},{"src":"assets/icons/icon-512.png","sizes":"512x512","type":"image/png"}],"theme_color":"#0b3b66","background_color":"#f5f7fb","display":"standalone"}
+{
+  "name": "Travel Planner by Lucas S.",
+  "short_name": "Travel Planner",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f6fbff",
+  "theme_color": "#0b3b66",
+  "icons": [
+    {
+      "src": "assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
