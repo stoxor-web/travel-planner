@@ -376,10 +376,10 @@
     if (!readOnlyMode && (!user || !appReady)) {
       if (focus) focus.innerHTML = '';
       grid.innerHTML = `
-        <div class="login-gate login-gate--simple">
+        <div class="login-gate login-gate--simple control-login">
           <div class="login-gate__icon">✈️</div>
-          <h2>Prépare tes voyages en ligne</h2>
-          <p>Connecte-toi avec Google pour retrouver tes itinéraires, budgets et carnets sur tous tes appareils.</p>
+          <h2>Ton cockpit de voyage personnel</h2>
+          <p>Connecte-toi avec Google pour préparer, consulter et synchroniser tes voyages sur ordinateur et iPhone.</p>
           <button class="button button--primary button--large" id="dashboardSignInBtn">Continuer avec Google</button>
         </div>
       `;
@@ -396,33 +396,39 @@
 
     grid.innerHTML = state.trips.map(trip => {
       const budget = Budget.computeBudget(trip);
-      const score = Suggestions.analyzeTrip(trip, state.settings).globalScore || 0;
+      const analysis = Suggestions.analyzeTrip(trip, state.settings);
+      const score = analysis.globalScore || 0;
       const days = U.tripDuration(trip);
       const cover = trip.area || trip.name || 'Voyage';
+      const statusClass = `status-${U.slug(trip.status || 'brouillon')}`;
+      const coverStyle = trip.coverImage ? ` style="background-image:linear-gradient(160deg, rgba(8,20,43,.35), rgba(8,20,43,.66)), url('${U.escapeHtml(trip.coverImage)}')"` : '';
+      const topIssue = (analysis.suggestions || []).find(item => item.level === 'danger' || item.level === 'warning');
       return `
-        <article class="trip-card trip-card--app">
-          <div class="trip-card__cover">
-            <span>${U.escapeHtml(cover).slice(0, 32)}</span>
+        <article class="trip-card trip-card--app trip-card--premium">
+          <div class="trip-card__cover"${coverStyle}>
+            <span>${U.escapeHtml(cover).slice(0, 42)}</span>
             <strong>${score}% prêt</strong>
           </div>
           <div class="trip-card__body">
             <div class="trip-card__top">
               <div>
-                <span class="badge">${U.escapeHtml(trip.status)}</span>
+                <span class="badge trip-status ${statusClass}">${U.escapeHtml(trip.status)}</span>
                 <h3>${U.escapeHtml(trip.name)}</h3>
               </div>
-              <span>${days} j</span>
+              <span class="trip-days-pill">${days} j</span>
             </div>
             <p>${U.escapeHtml(trip.description || 'Aucune description pour le moment.')}</p>
-            <div class="trip-card__meta">
+            <div class="trip-card__meta trip-card__meta--quick">
               <span>📅 ${U.formatDate(trip.startDate)} → ${U.formatDate(trip.endDate)}</span>
               <span>📍 ${trip.steps.length} étape(s)</span>
-              <span>💶 ${U.formatMoney(budget.plannedTotal, trip.currency)}${trip.maxBudget ? ` / ${U.formatMoney(trip.maxBudget, trip.currency)}` : ''}</span>
+              <span>💶 ${U.formatMoney(budget.actualTotal || budget.plannedTotal, trip.currency)}${trip.maxBudget ? ` / ${U.formatMoney(trip.maxBudget, trip.currency)}` : ''}</span>
               <span>👥 ${Budget.travellerNames(trip).join(', ')}</span>
             </div>
+            ${topIssue ? `<div class="trip-card__alert">⚠️ ${U.escapeHtml(topIssue.message)}</div>` : '<div class="trip-card__alert trip-card__alert--ok">✓ Aucun point critique immédiat</div>'}
             <div class="trip-progress"><span style="width:${score}%"></span></div>
             <div class="trip-card__actions">
               <button class="button button--primary" data-open-trip="${trip.id}">${readOnlyMode ? 'Voir' : 'Continuer'}</button>
+              <button class="button" data-open-trip-mode="${trip.id}">Mode voyage</button>
               ${readOnlyMode ? '' : `<button class="button" data-share-trip="${trip.id}">Partager</button><button class="button" data-duplicate-trip="${trip.id}">Dupliquer</button><button class="button" data-delete-trip="${trip.id}">Supprimer</button>`}
             </div>
           </div>
@@ -435,6 +441,14 @@
       renderAll();
       if (!readOnlyMode) scheduleCloudAutosave();
       switchView('itinerary');
+    }));
+    grid.querySelectorAll('[data-open-trip-mode]').forEach(button => button.addEventListener('click', () => {
+      state.activeTripId = button.dataset.openTripMode;
+      state = Storage.save(state);
+      renderAll();
+      if (!readOnlyMode) scheduleCloudAutosave();
+      switchView('dashboard');
+      setTimeout(() => document.querySelector('.travel-mode-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
     }));
     grid.querySelectorAll('[data-share-trip]').forEach(button => button.addEventListener('click', () => shareTrip(button.dataset.shareTrip)));
     grid.querySelectorAll('[data-duplicate-trip]').forEach(button => button.addEventListener('click', () => {
@@ -456,30 +470,82 @@
     }
     const budget = Budget.computeBudget(trip);
     const analysis = Suggestions.analyzeTrip(trip, state.settings);
-    const segments = Itinerary.totals(trip, state.settings);
-    const nextStep = U.sortSteps(trip.steps || []).find(step => step.arrivalDate >= new Date().toISOString().slice(0, 10)) || U.sortSteps(trip.steps || [])[0];
+    const totals = Itinerary.totals(trip, state.settings);
+    const steps = U.sortSteps(trip.steps || []);
+    const today = new Date().toISOString().slice(0, 10);
+    const nextStep = steps.find(step => (step.arrivalDate || step.departureDate || '9999-12-31') >= today) || steps[0];
+    const todaySteps = steps.filter(step => step.arrivalDate === today || step.departureDate === today);
+    const daysToStart = trip.startDate ? Math.ceil((new Date(`${trip.startDate}T08:00:00`) - new Date()) / 86400000) : null;
+    const critical = (analysis.suggestions || []).filter(item => item.level === 'danger').length;
+    const warnings = (analysis.suggestions || []).filter(item => item.level === 'warning').length;
+    const budgetUsed = budget.max ? Math.min(999, Math.round(((budget.actualTotal || budget.plannedTotal) / budget.max) * 100)) : 0;
+    const currentStage = trip.status === 'en cours' ? 'En voyage' : daysToStart != null && daysToStart >= 0 ? `Départ dans ${daysToStart} j` : trip.status;
+
     container.innerHTML = `
-      <section class="dashboard-current">
-        <div>
-          <p class="eyebrow">Voyage actif</p>
-          <h2>${U.escapeHtml(trip.name)}</h2>
-          <p>${U.escapeHtml(trip.area || 'Destination à préciser')} · ${U.formatDate(trip.startDate)} → ${U.formatDate(trip.endDate)}</p>
+      <section class="control-center">
+        <div class="control-center__hero">
+          <div>
+            <p class="eyebrow">Centre de contrôle</p>
+            <h2>${U.escapeHtml(trip.name)}</h2>
+            <p>${U.escapeHtml(trip.area || 'Destination à préciser')} · ${U.formatDate(trip.startDate)} → ${U.formatDate(trip.endDate)}</p>
+          </div>
+          <div class="control-center__score">
+            <strong>${analysis.globalScore}%</strong>
+            <span>voyage prêt</span>
+          </div>
         </div>
-        <div class="dashboard-current__stats">
-          <article><strong>${analysis.globalScore}%</strong><span>préparation</span></article>
-          <article><strong>${trip.steps.length}</strong><span>étapes</span></article>
-          <article><strong>${U.formatDistance(segments.distance)}</strong><span>trajet</span></article>
-          <article><strong>${U.formatMoney(budget.plannedTotal, trip.currency)}</strong><span>budget prévu</span></article>
+        <div class="control-kpis">
+          <article><small>Statut</small><strong>${U.escapeHtml(currentStage || 'Brouillon')}</strong></article>
+          <article><small>Planning</small><strong>${trip.steps.length} étape(s)</strong></article>
+          <article><small>Trajets</small><strong>${U.formatDistance(totals.distance)}</strong></article>
+          <article><small>Budget</small><strong>${budget.max ? `${budgetUsed}% utilisé` : U.formatMoney(budget.plannedTotal, trip.currency)}</strong></article>
+          <article><small>Alertes</small><strong>${critical} critique · ${warnings} veille</strong></article>
         </div>
-        <div class="dashboard-current__actions">
-          <button class="button button--primary" data-go-view="itinerary">Ouvrir le planning</button>
-          <button class="button" data-go-view="map">Voir la carte</button>
+        <div class="control-center__actions">
+          <button class="button button--primary" data-go-view="itinerary">Planning</button>
+          <button class="button" data-go-view="map">Carte</button>
           <button class="button" data-go-view="budget">Budget</button>
+          <button class="button" data-go-view="suggestions">Alertes</button>
+          ${readOnlyMode ? '' : '<button class="button" data-dashboard-add-step>+ Étape</button><button class="button" data-dashboard-add-expense>+ Dépense</button>'}
         </div>
-        ${nextStep ? `<p class="dashboard-next">Prochaine étape : <strong>${U.escapeHtml(nextStep.name)}</strong></p>` : ''}
+      </section>
+
+      <section class="travel-mode-card">
+        <div class="travel-mode-card__head">
+          <div>
+            <p class="eyebrow">Mode voyage</p>
+            <h3>${todaySteps.length ? 'Aujourd’hui' : 'Prochaine action'}</h3>
+          </div>
+          <span class="badge">Consultation rapide</span>
+        </div>
+        <div class="travel-mode-grid">
+          <article class="travel-now-card">
+            <small>Prochaine étape</small>
+            <strong>${nextStep ? U.escapeHtml(nextStep.name) : 'Aucune étape'}</strong>
+            <span>${nextStep ? `${U.formatDateTime(nextStep.arrivalDate, nextStep.arrivalTime, 'arrivée à définir')} · ${U.escapeHtml(nextStep.type || 'lieu')}` : 'Ajoute un lieu pour démarrer.'}</span>
+            ${nextStep?.address ? `<em>${U.escapeHtml(nextStep.address)}</em>` : ''}
+          </article>
+          <article class="travel-now-card">
+            <small>À faire maintenant</small>
+            <strong>${analysis.suggestions?.[0] ? U.escapeHtml(analysis.suggestions[0].message) : 'Tout semble prêt'}</strong>
+            <span>${critical ? 'Correction prioritaire' : warnings ? 'Point à vérifier' : 'Aucune alerte critique'}</span>
+          </article>
+          <article class="travel-now-card">
+            <small>Dépense rapide</small>
+            <strong>${U.formatMoney(budget.actualTotal || 0, trip.currency)}</strong>
+            <span>réel enregistré · ${U.formatMoney(budget.plannedTotal, trip.currency)} prévu</span>
+          </article>
+        </div>
+        ${todaySteps.length ? `<div class="today-strip">${todaySteps.map(step => `<button type="button" data-focus-step="${step.id}"><b>${U.escapeHtml(step.arrivalTime || '--:--')}</b><span>${U.escapeHtml(step.name)}</span></button>`).join('')}</div>` : ''}
       </section>
     `;
     container.querySelectorAll('[data-go-view]').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.goView)));
+    container.querySelector('[data-dashboard-add-step]')?.addEventListener('click', () => openStepDialog(null, today));
+    container.querySelector('[data-dashboard-add-expense]')?.addEventListener('click', () => openExpenseDialog());
+    container.querySelectorAll('[data-focus-step]').forEach(button => button.addEventListener('click', () => {
+      switchView('itinerary');
+      setTimeout(() => openStepDialog(button.dataset.focusStep), 120);
+    }));
   }
 
   function renderTripForm() {
@@ -490,7 +556,7 @@
       form.reset();
       return;
     }
-    const fields = ['name', 'description', 'area', 'startDate', 'endDate', 'travellers', 'maxBudget', 'currency', 'status', 'style', 'pace', 'interests'];
+    const fields = ['name', 'description', 'area', 'coverImage', 'startDate', 'endDate', 'travellers', 'maxBudget', 'currency', 'status', 'style', 'pace', 'interests'];
     fields.forEach(field => { if (form.elements[field]) form.elements[field].value = trip[field] ?? ''; });
     if (form.elements.travellersNames) form.elements.travellersNames.value = Budget.travellerNames(trip).join(', ');
   }
@@ -501,7 +567,7 @@
     let trip = activeTrip();
     if (!trip) trip = Storage.normalizeTrip({});
     const data = new FormData(event.currentTarget);
-    ['name', 'description', 'area', 'startDate', 'endDate', 'currency', 'status', 'style', 'pace', 'interests'].forEach(key => { trip[key] = String(data.get(key) || ''); });
+    ['name', 'description', 'area', 'coverImage', 'startDate', 'endDate', 'currency', 'status', 'style', 'pace', 'interests'].forEach(key => { trip[key] = String(data.get(key) || ''); });
     trip.travellersNames = parseTravellerNames(data.get('travellersNames'));
     trip.travellers = Math.max(1, trip.travellersNames.length || Number(data.get('travellers')) || 1);
     trip.maxBudget = Number(data.get('maxBudget')) || 0;
@@ -539,6 +605,7 @@
     const trip = Storage.normalizeTrip({
       name: String(data.get('name') || 'Nouveau voyage'),
       area: String(data.get('area') || ''),
+      coverImage: String(data.get('coverImage') || ''),
       startDate: String(data.get('startDate') || ''),
       endDate: String(data.get('endDate') || ''),
       travellersNames: names,

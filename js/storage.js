@@ -29,6 +29,7 @@
       name: trip.name || 'Nouveau voyage',
       description: trip.description || '',
       area: trip.area || '',
+      coverImage: trip.coverImage || '',
       startDate: trip.startDate || '',
       endDate: trip.endDate || '',
       travellersNames: Array.isArray(trip.travellersNames)
