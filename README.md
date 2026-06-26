@@ -1,3 +1,5 @@
+https://stoxor-web.github.io/travel-planner/
+
 # Travel Planner — V4.10 UI & Partage
 
 Application web personnelle de planification de voyages créée par Lucas S., hébergeable sur GitHub Pages et synchronisée avec Firebase/Google.
