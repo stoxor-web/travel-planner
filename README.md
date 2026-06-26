@@ -39,3 +39,18 @@ Si l’ancien style apparaît encore, vide le cache du navigateur ou ouvre le si
 ## Firebase
 
 Le fichier `js/firebase-config.js` est conservé dans l’archive. Les données restent synchronisées via Firestore après connexion Google.
+
+
+## V4.5 — Centre de contrôle et assistant horaire
+
+Cette version ajoute :
+
+- un accueil en mode centre de contrôle ;
+- un mode voyage pour consultation rapide pendant le séjour ;
+- des cartes voyages avec image de couverture et statut ;
+- un assistant intelligent plus détaillé, groupé par gravité ;
+- la détection automatique des incohérences horaires ;
+- des alertes de marge courte entre deux étapes ;
+- une vérification de stabilité de la carte OSM maison sans Leaflet.
+
+Le fichier `firebase-config.example` n’est pas utilisé ni recréé.
