@@ -7,3 +7,16 @@
 body.is-cloud-locked .view:not(.is-visible){display:none!important}
 .view:not(.is-visible){display:none!important}
 .view.is-visible{display:block!important}
+
+/* V4.18 — bloc de connexion plus élégant */
+.auth-welcome-card{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;padding:18px;border:1px solid rgba(23,105,232,.22);border-radius:24px;background:linear-gradient(135deg,rgba(23,105,232,.10),rgba(18,182,176,.10));box-shadow:var(--soft-shadow)}
+.auth-welcome-card[hidden]{display:none!important}
+.auth-welcome-card h3{margin:0 0 6px;font-size:1.25rem;letter-spacing:-.03em;color:var(--text)}
+.auth-welcome-card p:not(.eyebrow){margin:0;color:var(--muted);line-height:1.55}
+.auth-welcome-icon{width:58px;height:58px;border-radius:20px;display:grid;place-items:center;color:white;font-size:1.45rem;font-weight:950;background:linear-gradient(135deg,var(--primary),var(--teal));box-shadow:0 16px 34px rgba(23,105,232,.22)}
+.account-panel .status-banner[hidden]{display:none!important}
+.account-panel .status-banner{margin:0;padding:12px 14px}
+.auth-method-card{position:relative;overflow:hidden}
+.auth-method-card:before{content:"";position:absolute;inset:0 0 auto 0;height:4px;background:linear-gradient(90deg,var(--primary),var(--teal));opacity:.75}
+.auth-method-card--guest:before{background:linear-gradient(90deg,var(--teal),var(--coral))}
+@media(max-width:560px){.auth-welcome-card{grid-template-columns:1fr;text-align:left}.auth-welcome-icon{width:52px;height:52px}}
