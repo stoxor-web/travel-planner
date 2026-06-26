@@ -2,55 +2,27 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isSignedInUser(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    function isAdmin() {
-      return isSignedIn() && request.auth.token.email == 'lucas.scribe01@gmail.com';
-    }
-
-    function hasValidBackupShape() {
-      return request.resource.data.keys().hasOnly([
-        'ownerUid',
-        'ownerEmail',
-        'schema',
-        'schemaVersion',
-        'clientUpdatedAt',
-        'updatedAt',
-        'state'
-      ])
-      && request.resource.data.ownerUid == request.auth.uid
-      && request.resource.data.schema == 'travelPlannerState'
-      && request.resource.data.schemaVersion == 1
-      && request.resource.data.state is map;
-    }
+    function signedIn() { return request.auth != null; }
+    function isOwner(userId) { return signedIn() && request.auth.uid == userId; }
+    function isAdmin() { return signedIn() && request.auth.token.email == 'lucas.scribe01@gmail.com'; }
 
     match /travelPlannerUsers/{userId} {
-      allow read: if isSignedInUser(userId);
-      allow create: if isSignedInUser(userId) && hasValidBackupShape();
-      allow update: if isSignedInUser(userId)
-        && resource.data.ownerUid == request.auth.uid
-        && hasValidBackupShape();
-      allow delete: if isSignedInUser(userId);
+      allow read, write, delete: if isOwner(userId);
+    }
+
+    match /sharedTrips/{shareId} {
+      allow read: if resource.data.visibility == 'public'
+        || (signedIn() && (resource.data.ownerUid == request.auth.uid
+        || request.auth.token.email in resource.data.allowedEmails));
+      allow create: if signedIn();
+      allow update, delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
     }
 
     match /communityTrips/{tripId} {
       allow read: if true;
-      allow create: if isSignedIn()
-        && request.resource.data.ownerUid == request.auth.uid;
-      allow update: if isSignedIn()
-        && (
-          resource.data.ownerUid == request.auth.uid
-          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes', 'score', 'updatedAt'])
-          || isAdmin()
-        );
-      allow delete: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if signedIn();
+      allow delete: if signedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
     }
 
     match /{document=**} {

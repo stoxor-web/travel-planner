@@ -1,59 +1,32 @@
 https://stoxor-web.github.io/travel-planner/
 
-# Travel Planner — V4.11 UI & Partage
+# Travel Planner — V4.12 réparation stable Firebase
 
-Application web personnelle de planification de voyages créée par Lucas S., hébergeable sur GitHub Pages et synchronisée avec Firebase/Google.
+Version complète corrigée et prête à publier avec Firebase actif, connexion Google, carte OpenStreetMap stable sans Leaflet, page Communauté, budget partagé, planning, préparation et carnet.
 
-## Correctifs de cette version
+## Correctifs majeurs
 
-- Footer officiel retravaillé avec mentions plus propres.
-- Suppression du texte permanent « Connexion requise » dans le bas de la navigation.
-- Bouton Google / connecté rendu lisible sur fond clair et sombre.
-- Publication Communauté renforcée : formulaire plus fiable, erreurs plus claires, règles Firestore assouplies pour éviter les blocages de publication.
-- Conservation de la configuration Firebase active dans `js/firebase-config.js`.
+- Réécriture de `app.js` pour réaligner toutes les vues avec le HTML actuel.
+- Firebase conservé et configuré dans `js/firebase-config.js`.
+- Suppression des erreurs JavaScript qui bloquaient l’interface.
+- Carte OSM stable sans dépendance Leaflet.
+- Accueil, Aujourd’hui, Communauté, Voyage, Carte, Planning, Budget, Suggestions, Préparation, Carnet et Paramètres recâblés.
+- Publication Communauté, votes, copie de voyage et retrait propriétaire/admin corrigés.
+- Bouton Google lisible et état connecté propre.
+- Footer officiel retravaillé.
+- Cache-busting V4.12 sur CSS et JS.
 - Aucun fichier `firebase-config.example`.
 
 ## Publication
 
-Remplace tout le contenu de ton dépôt GitHub Pages par le contenu de ce dossier, puis publie :
+Remplace tout le contenu du dépôt par ce dossier complet, puis lance :
 
 ```bash
 git add .
-git commit -m "V4.11 correction interface et partage communaute"
+git commit -m "V4.12 reparation stable Firebase"
 git push origin main
 ```
 
-Ensuite, ouvre le site en navigation privée ou vide le cache du navigateur.
+Copie aussi le contenu de `firestore.rules` dans Firebase Console → Firestore Database → Rules.
 
-## Règles Firebase
-
-Copie le contenu de `firestore.rules` dans Firebase Console → Firestore Database → Rules.
-
-La collection privée reste :
-
-```text
-travelPlannerUsers/{uid}
-```
-
-La communauté publique utilise :
-
-```text
-communityTrips/{tripId}
-```
-
-L’administrateur communautaire défini dans les règles est :
-
-```text
-lucas.scribe01@gmail.com
-```
-
-
-## V4.11 — Réparation visuelle et fonctionnelle
-
-- Correction des sections HTML/JS désynchronisées.
-- Firebase reste actif avec connexion Google.
-- Correction du bouton Google et du bloc Compte.
-- Suppression des erreurs de données anciennes, notamment `reading length`.
-- Carte OpenStreetMap stable sans Leaflet.
-- Communauté recâblée avec publication, vote, copie et retrait.
-- Footer officiel retravaillé.
+Après publication, ouvre le site en navigation privée ou vide le cache.
