@@ -51,3 +51,20 @@ Elle est lisible publiquement, mais la création, le vote, la modification et la
 ## Déploiement GitHub Pages
 
 Remplace tout le contenu de ton dépôt par le contenu du ZIP, puis attends quelques minutes que GitHub Pages publie la nouvelle version. En cas d’ancien rendu, ouvre le site en navigation privée ou vide le cache du navigateur.
+
+
+## Version Firebase verrouillée
+
+Cette archive est prête à l’emploi avec la configuration Firebase du projet `travel-planner-60337`.
+
+- Le fichier actif est `js/firebase-config.js`.
+- Aucun fichier `firebase-config.example` ne doit être ajouté.
+- La connexion Google reste disponible en permanence.
+- Les voyages sont chargés et sauvegardés dans Firestore après connexion.
+- Si une nouvelle version est générée, elle doit conserver ce fichier Firebase actif.
+
+Après mise en ligne, vérifier dans Firebase :
+
+1. Authentication > Google activé.
+2. Authorized domains contient `stoxor-web.github.io`.
+3. Firestore Rules contient les règles du fichier `firestore.rules`.
