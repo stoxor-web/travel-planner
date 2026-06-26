@@ -212,7 +212,7 @@
     }
 
     if (!state.trips.length) {
-      grid.innerHTML = '<div class="empty-state">Aucun voyage dans Firebase pour ce compte. Crée ton premier itinéraire ou charge l’exemple.</div>';
+      grid.innerHTML = '<div class="empty-state">Aucun voyage dans Firebase pour ce compte. Crée ton premier itinéraire.</div>';
       return;
     }
 
