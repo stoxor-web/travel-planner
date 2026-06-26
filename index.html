@@ -241,16 +241,18 @@
       </section>
 
       <section class="view" id="view-suggestions" aria-labelledby="pageTitle">
-        <div class="panel">
-          <div class="panel__header">
-            <div>
-              <p class="eyebrow">Moteur local</p>
-              <h2>Suggestions intelligentes sans API payante</h2>
+        <div class="suggestions-shell">
+          <div class="panel suggestions-command">
+            <div class="panel__header">
+              <div>
+                <p class="eyebrow">Assistant de cohérence</p>
+                <h2>Suggestions intelligentes</h2>
+              </div>
+              <button class="button button--primary" id="optimizeBtn">Optimiser l’ordre</button>
             </div>
-            <button class="button button--primary" id="optimizeBtn">Optimiser l’ordre</button>
+            <div id="scorePanel" class="score-panel score-panel--smart"></div>
           </div>
-          <div id="scorePanel" class="score-panel"></div>
-          <div id="suggestionsList" class="suggestions-list"></div>
+          <div id="suggestionsList" class="suggestions-list suggestions-list--smart"></div>
         </div>
       </section>
 

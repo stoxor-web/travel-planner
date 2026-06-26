@@ -1,22 +1,28 @@
 # Travel Planner — Lucas S. Edition
 
-Application web personnelle de planification de voyages, hébergeable sur GitHub Pages et synchronisée avec Google/Firebase.
+Application web personnelle de planification de voyages, hébergeable sur GitHub Pages et synchronisée avec Firebase / Google.
 
-## Mise à jour V4.4 — interface professionnelle + planning horaire
+## Version V4.6 — Suggestions intelligentes avancées
 
-Cette version améliore fortement la présentation du site et la page Planning :
+Cette version renforce la page **Suggestions** pour en faire un vrai centre d’alertes :
 
-- rendu visuel plus premium et plus cohérent ;
-- cartes, bulles, blocs et panneaux mieux hiérarchisés ;
-- tableau de bord, topbar et cartes plus propres ;
-- planning jour par jour présenté comme une timeline ;
-- blocs d’étapes avec arrivée, départ, heure, position, coût et notes ;
-- ajout des champs **heure d’arrivée** et **heure de départ** dans chaque étape ;
-- trajets point par point enrichis avec départ, arrivée, durée, distance, coût et référence ;
-- modification directe des dates/heures depuis la feuille de route ;
-- carte OSM stable sans Leaflet avec bulles de lieux enrichies ;
-- icônes et favicon conservés ;
-- aucune création de fichier `firebase-config.example`.
+- suggestions adaptées au style de voyage : économique, équilibré, confort, aventure ;
+- détection plus claire des incohérences horaires ;
+- alertes liées au budget prévu / réel ;
+- bouton **Corriger automatiquement** pour ajouter des tâches, checklists ou postes de budget sans supprimer les données ;
+- page Suggestions plus visuelle : score global, scores détaillés, cartes d’alertes, niveaux critique / à vérifier / bon point ;
+- panneau **IA & Web** : prompt IA prêt à copier et recherches web ciblées selon la destination, la durée, les centres d’intérêt et le style du voyage ;
+- aucune dépendance obligatoire à une API IA payante ;
+- conservation de la carte OSM stable sans Leaflet ;
+- conservation de Firebase comme source principale de sauvegarde ;
+- aucun fichier `firebase-config.example`.
+
+## Fonctionnement
+
+1. Publier le dossier sur GitHub Pages.
+2. Vérifier que `js/firebase-config.js` contient la configuration Firebase du projet.
+3. Copier `firestore.rules` dans Firebase Console si les règles ont changé.
+4. Ouvrir le site, se connecter avec Google, puis créer ou ouvrir un voyage.
 
 ## Fichiers importants
 
@@ -24,33 +30,23 @@ Cette version améliore fortement la présentation du site et la page Planning :
 index.html
 css/style.css
 js/app.js
+js/suggestions.js
+js/budget.js
 js/itinerary.js
 js/map.js
 js/storage.js
-js/utils.js
+js/firebase-sync.js
+js/firebase-config.js
+assets/icons/
+assets/images/
 ```
 
-## Déploiement
+## Notes
 
-Remplace tout le contenu du dépôt GitHub Pages par le contenu de cette archive, puis attends quelques minutes que GitHub Pages mette à jour le site.
+La recherche IA / Web ajoutée dans la page Suggestions ne lance pas automatiquement d’appel API payant. Le site génère :
 
-Si l’ancien style apparaît encore, vide le cache du navigateur ou ouvre le site en navigation privée.
+- un prompt IA copiable ;
+- des liens de recherche web ciblés ;
+- des corrections locales sûres via JavaScript.
 
-## Firebase
-
-Le fichier `js/firebase-config.js` est conservé dans l’archive. Les données restent synchronisées via Firestore après connexion Google.
-
-
-## V4.5 — Centre de contrôle et assistant horaire
-
-Cette version ajoute :
-
-- un accueil en mode centre de contrôle ;
-- un mode voyage pour consultation rapide pendant le séjour ;
-- des cartes voyages avec image de couverture et statut ;
-- un assistant intelligent plus détaillé, groupé par gravité ;
-- la détection automatique des incohérences horaires ;
-- des alertes de marge courte entre deux étapes ;
-- une vérification de stabilité de la carte OSM maison sans Leaflet.
-
-Le fichier `firebase-config.example` n’est pas utilisé ni recréé.
+Les corrections automatiques n’inventent pas d’horaires et ne suppriment aucune donnée. Elles ajoutent surtout des tâches, postes de budget ou checklists à vérifier.
