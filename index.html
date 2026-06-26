@@ -6,12 +6,12 @@
   <meta name="description" content="Travel Planner by Lucas S. — planificateur de voyages moderne synchronisé avec Firebase." />
   <meta name="theme-color" content="#0b3b66" />
   <title>Travel Planner — Lucas S.</title>
-  <link rel="icon" href="assets/icons/favicon.ico?v=v415" sizes="any" />
-  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png?v=v415" />
-  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png?v=v415" />
-  <link rel="manifest" href="site.webmanifest?v=v415" />
+  <link rel="icon" href="assets/icons/favicon.ico?v=v416" sizes="any" />
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png?v=v416" />
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png?v=v416" />
+  <link rel="manifest" href="site.webmanifest?v=v416" />
   <style>[hidden]{display:none!important}.view{display:none}.view.is-visible{display:block}dialog:not([open]){display:none!important}body{margin:0;background:#eef6fb;color:#101828;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}</style>
-  <link rel="stylesheet" href="css/style.css?v=v415" />
+  <link rel="stylesheet" href="css/style.css?v=v416" />
 </head>
 <body>
   <div id="app" class="app-shell">
@@ -44,7 +44,7 @@
         <div class="topbar__actions">
           <div class="global-search"><input id="globalSearchInput" class="input" type="search" placeholder="Rechercher…" autocomplete="off" /><div id="globalSearchResults" class="search-results" hidden></div></div>
           <select id="tripSelector" class="input trip-select" aria-label="Voyage sélectionné"></select>
-          <button class="auth-pill" id="cloudAuthBtn" type="button"><span class="auth-avatar">↗</span><span class="auth-copy"><strong>Connexion</strong><small>Google ou e-mail</small></span></button>
+          <button class="auth-pill" id="cloudAuthBtn" type="button"><span class="auth-avatar">↗</span><span class="auth-copy"><strong>Connexion</strong><small>Google, e-mail ou invité</small></span></button>
           <button class="button icon-button" id="themeToggle" type="button">🌙</button>
         </div>
       </header>
@@ -91,7 +91,7 @@
               <div>
                 <strong id="cloudUserName">Compte utilisateur</strong>
                 <span id="cloudUserEmail"></span>
-                <small id="cloudProvider">Google ou e-mail</small>
+                <small id="cloudProvider">Google, e-mail ou invité</small>
               </div>
             </div>
             <div class="auth-choice-grid">
@@ -114,6 +114,12 @@
                   </div>
                 </form>
               </section>
+              <section class="auth-method-card auth-method-card--guest">
+                <p class="eyebrow">Invité</p>
+                <h3>Accès anonyme</h3>
+                <p>Entre sans compte Google ni mot de passe. Firebase crée un espace privé invité sur ce navigateur.</p>
+                <button class="button button--primary full" id="cloudAnonymousSignInBtn" type="button">Continuer en invité</button>
+              </section>
             </div>
             <div class="account-actions">
               <button class="button" id="cloudSignOutBtn" type="button">Déconnexion</button>
@@ -125,7 +131,7 @@
             </div>
           </div></div><form id="settingsForm" class="panel form-grid"><div class="wide"><p class="eyebrow">Préférences</p><h2>Estimations & sauvegarde</h2></div><label>Sauvegarde auto (minutes)<input class="input" name="autosaveMinutes" type="number" min="1" /></label><label>Voiture km/h<input class="input" name="carSpeed" type="number" min="1" /></label><label>Train km/h<input class="input" name="trainSpeed" type="number" min="1" /></label><label>Marche km/h<input class="input" name="walkSpeed" type="number" min="1" /></label><button class="button button--primary wide" type="submit">Enregistrer</button></form></div></section>
 
-      <footer class="site-footer"><div><strong>Travel Planner</strong><span>Créé par Lucas S.</span></div><div><span>Données privées synchronisées avec Firebase</span><span>Cartographie © OpenStreetMap</span><span>Version V4.15</span></div></footer>
+      <footer class="site-footer"><div><strong>Travel Planner</strong><span>Créé par Lucas S.</span></div><div><span>Données privées synchronisées avec Firebase</span><span>Cartographie © OpenStreetMap</span><span>Version V4.16</span></div></footer>
     </main>
   </div>
 
@@ -136,6 +142,6 @@
   <dialog id="publishDialog" class="modal"><form id="publishForm" method="dialog" class="modal-card form-grid"><button class="modal-close" type="button" data-close-dialog="publishDialog">×</button><div class="wide"><p class="eyebrow">Communauté</p><h2>Partager ce voyage</h2><p>Une copie publique de consultation sera créée.</p></div><label>Titre public<input class="input" name="title" required /></label><label>Pays / zone<input class="input" name="country" /></label><label>Catégorie<select class="input" name="category"><option value="roadtrip">Roadtrip</option><option value="citybreak">City break</option><option value="aventure">Aventure</option><option value="nature">Nature</option><option value="plage">Plage</option><option value="culture">Culture</option><option value="gastronomie">Gastronomie</option><option value="famille">Famille</option><option value="budget">Petit budget</option><option value="confort">Confort</option></select></label><label class="wide">Image<input class="input" name="coverImage" type="url" /></label><label class="wide">Description<textarea class="input" name="description" rows="4"></textarea></label><label class="check"><input type="checkbox" name="hideBudget" /> Masquer le budget</label><label class="check"><input type="checkbox" name="allowCopy" checked /> Autoriser la copie</label><div class="wide form-actions"><button class="button" type="button" data-close-dialog="publishDialog">Annuler</button><button class="button button--primary" type="submit">Publier</button></div></form></dialog>
   <dialog id="confirmDialog" class="modal small"><form method="dialog" class="modal-card"><h2 id="confirmTitle">Confirmation</h2><p id="confirmMessage"></p><div class="form-actions"><button class="button" value="cancel">Annuler</button><button class="button button--primary" value="default">Confirmer</button></div></form></dialog>
 
-  <script src="js/firebase-config.js?v=v415"></script><script src="js/utils.js?v=v415"></script><script src="js/storage.js?v=v415"></script><script src="js/firebase-sync.js?v=v415"></script><script src="js/map.js?v=v415"></script><script src="js/app.js?v=v415"></script>
+  <script src="js/firebase-config.js?v=v416"></script><script src="js/utils.js?v=v416"></script><script src="js/storage.js?v=v416"></script><script src="js/firebase-sync.js?v=v416"></script><script src="js/budget.js?v=v416"></script><script src="js/itinerary.js?v=v416"></script><script src="js/suggestions.js?v=v416"></script><script src="js/geocoder.js?v=v416"></script><script src="js/map.js?v=v416"></script><script src="js/app.js?v=v416"></script>
 </body>
 </html>
