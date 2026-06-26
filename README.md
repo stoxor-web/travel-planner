@@ -2,7 +2,7 @@ https://stoxor-web.github.io/travel-planner/
 
 # Travel Planner — Lucas S.
 
-Version **V4.16 — connexion Google, e-mail ou invité anonyme + Firebase actif**.
+Version **V4.17 — correction permissions Communauté + Firebase actif**.
 
 Cette version répare la base visuelle et fonctionnelle du site avec un dossier complet cohérent : HTML, CSS, JavaScript, Firebase, communauté, budget, planning, carte, préparation et carnet.
 
@@ -18,7 +18,7 @@ Cette version répare la base visuelle et fonctionnelle du site avec un dossier 
 
 ```bash
 git add .
-git commit -m "V4.16 connexion anonyme Firebase"
+git commit -m "V4.17 correction permissions communaute"
 git push origin main
 ```
 
@@ -51,3 +51,18 @@ Cette version conserve Firebase actif et ajoute un troisième mode de connexion 
 
 Le fournisseur **Anonyme** doit être activé dans Firebase Authentication.
 Aucun fichier `firebase-config.example` n’est inclus.
+
+## V4.17 — Correction Communauté
+
+Cette version corrige l’erreur `Communauté : Missing or insufficient permissions` lors de la publication d’un voyage.
+
+À faire obligatoirement après publication des fichiers : copier le contenu de `firestore.rules` dans Firebase Console → Firestore Database → Rules, puis cliquer sur **Publier**.
+
+Les règles sont compatibles avec :
+
+- Google ;
+- e-mail / mot de passe ;
+- invité anonyme ;
+- publication dans `communityTrips` ;
+- vote communautaire ;
+- retrait par propriétaire ou admin Lucas S.

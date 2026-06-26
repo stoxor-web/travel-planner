@@ -12,23 +12,26 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && request.auth.token.email == 'lucas.scribe01@gmail.com';
+      return isSignedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email == 'lucas.scribe01@gmail.com';
     }
 
     function hasValidBackupShape() {
-      return request.resource.data.keys().hasOnly([
-        'ownerUid',
-        'ownerEmail',
-        'schema',
-        'schemaVersion',
-        'clientUpdatedAt',
-        'updatedAt',
-        'state'
-      ])
-      && request.resource.data.ownerUid == request.auth.uid
-      && request.resource.data.schema == 'travelPlannerState'
-      && request.resource.data.schemaVersion == 1
-      && request.resource.data.state is map;
+      return isSignedIn()
+        && request.resource.data.keys().hasOnly([
+          'ownerUid',
+          'ownerEmail',
+          'schema',
+          'schemaVersion',
+          'clientUpdatedAt',
+          'updatedAt',
+          'state'
+        ])
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.schema == 'travelPlannerState'
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.state is map;
     }
 
     match /travelPlannerUsers/{userId} {
@@ -42,14 +45,24 @@ service cloud.firestore {
 
     match /communityTrips/{tripId} {
       allow read: if true;
+
+      // Publication d'un voyage dans la galerie publique.
+      // Compatible avec Google, e-mail/mot de passe et invité anonyme.
       allow create: if isSignedIn()
-        && request.resource.data.ownerUid == request.auth.uid;
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.title is string
+        && request.resource.data.category is string
+        && request.resource.data.trip is map;
+
+      // Le propriétaire ou l'admin peut modifier une publication.
+      // Tout utilisateur connecté peut seulement mettre à jour son vote.
       allow update: if isSignedIn()
         && (
           resource.data.ownerUid == request.auth.uid
           || isAdmin()
           || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes', 'score', 'updatedAt'])
         );
+
       allow delete: if isSignedIn()
         && (resource.data.ownerUid == request.auth.uid || isAdmin());
     }
